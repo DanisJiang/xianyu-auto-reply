@@ -725,20 +725,14 @@ class DBManager:
         Returns:
             密码哈希值
         """
-        if BCRYPT_AVAILABLE:
-            try:
-                # bcrypt 限制密码最大 72 字节，确保不超过
-                password_bytes = password.encode('utf-8')[:72]
-                password_truncated = password_bytes.decode('utf-8', errors='ignore')
-                # 使用 bcrypt，rounds=12 提供良好的安全性和性能平衡
-                return bcrypt.using(rounds=12).hash(password_truncated)
-            except Exception as e:
-                logger.warning(f"bcrypt 哈希失败，回退到 SHA256: {e}")
-                return hashlib.sha256(password.encode()).hexdigest()
-        else:
-            # 回退方案：SHA256（不推荐，仅在 bcrypt 不可用时使用）
-            logger.warning("使用 SHA256 哈希密码（不推荐，请安装 passlib[bcrypt]）")
-            return hashlib.sha256(password.encode()).hexdigest()
+        if not BCRYPT_AVAILABLE:
+            raise RuntimeError("bcrypt 不可用，请安装 passlib[bcrypt]：pip install passlib[bcrypt]")
+
+        # bcrypt 限制密码最大 72 字节，确保不超过
+        password_bytes = password.encode('utf-8')[:72]
+        password_truncated = password_bytes.decode('utf-8', errors='ignore')
+        # 使用 bcrypt，rounds=12 提供良好的安全性和性能平衡
+        return bcrypt.using(rounds=12).hash(password_truncated)
 
     def _verify_password(self, password: str, password_hash: str) -> bool:
         """
@@ -757,15 +751,12 @@ class DBManager:
         # 检测哈希类型
         if password_hash.startswith('$2b$') or password_hash.startswith('$2a$') or password_hash.startswith('$2y$'):
             # bcrypt 哈希
-            if BCRYPT_AVAILABLE:
-                try:
-                    return bcrypt.verify(password, password_hash)
-                except Exception as e:
-                    logger.error(f"bcrypt 验证失败: {e}")
-                    return False
-            else:
-                logger.error("密码使用 bcrypt 哈希，但 bcrypt 不可用")
-                return False
+            if not BCRYPT_AVAILABLE:
+                raise RuntimeError("密码使用 bcrypt 哈希，但 bcrypt 不可用，请安装 passlib[bcrypt]")
+            # bcrypt 限制密码最大 72 字节
+            password_bytes = password.encode('utf-8')[:72]
+            password_truncated = password_bytes.decode('utf-8', errors='ignore')
+            return bcrypt.verify(password_truncated, password_hash)
         else:
             # 旧的 SHA256 哈希（向后兼容）
             sha256_hash = hashlib.sha256(password.encode()).hexdigest()
