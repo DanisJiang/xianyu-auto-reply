@@ -20,7 +20,7 @@ try:
     BCRYPT_AVAILABLE = True
 except ImportError:
     BCRYPT_AVAILABLE = False
-    logger.warning("passlib[bcrypt] 未安装，将使用 SHA256 作为后备方案（不推荐）")
+    logger.error("passlib[bcrypt] 未安装，密码功能将不可用。请安装：pip install passlib[bcrypt]")
 
 class DBManager:
     """SQLite数据库管理，持久化存储Cookie和关键字"""
@@ -716,7 +716,7 @@ class DBManager:
         """
         安全地哈希密码
 
-        使用 bcrypt 算法（如果可用），否则回退到 SHA256。
+        使用 bcrypt 算法，不可用时抛出异常（不允许降级）。
         bcrypt 自动生成盐值并包含在哈希中，防止彩虹表攻击。
 
         Args:
@@ -724,6 +724,9 @@ class DBManager:
 
         Returns:
             密码哈希值
+
+        Raises:
+            RuntimeError: bcrypt 不可用时
         """
         if not BCRYPT_AVAILABLE:
             raise RuntimeError("bcrypt 不可用，请安装 passlib[bcrypt]：pip install passlib[bcrypt]")
@@ -771,9 +774,12 @@ class DBManager:
 
         Returns:
             是否需要升级
+
+        Raises:
+            RuntimeError: bcrypt 不可用时
         """
         if not BCRYPT_AVAILABLE:
-            return False
+            raise RuntimeError("bcrypt 不可用，请安装 passlib[bcrypt]：pip install passlib[bcrypt]")
         # 如果不是 bcrypt 哈希，则需要升级
         return not (password_hash.startswith('$2b$') or password_hash.startswith('$2a$') or password_hash.startswith('$2y$'))
 
