@@ -665,7 +665,12 @@ class XianyuSliderStealth:
                     cookie_name_lower = cookie_name.lower()
                     if cookie_name_lower.startswith('x5') or 'x5sec' in cookie_name_lower:
                         filtered_cookies[cookie_name] = cookie_value
-                        logger.info(f"【{self.pure_user_id}】x5相关cookie已获取: {cookie_name} = {cookie_value}")
+                        # 安全修复：脱敏显示Cookie值
+                        if len(cookie_value) > 12:
+                            masked_value = f"{cookie_value[:4]}...{cookie_value[-4:]}"
+                        else:
+                            masked_value = "***"
+                        logger.info(f"【{self.pure_user_id}】x5相关cookie已获取: {cookie_name} = {masked_value}")
                 
                 logger.info(f"【{self.pure_user_id}】找到{len(filtered_cookies)}个x5相关cookies: {list(filtered_cookies.keys())}")
                 

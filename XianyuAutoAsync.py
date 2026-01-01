@@ -1394,55 +1394,58 @@ class XianyuLive:
                 'cookie': self.cookies_str
             }
 
-            # 打印所有请求参数（用于调试）
+            # 安全修复：敏感调试信息改为 debug 级别，生产环境默认不记录
             api_url = API_ENDPOINTS.get('token')
-            logger.info(f"【{self.cookie_id}】========== Token刷新API调用详情 ==========")
-            logger.info(f"【{self.cookie_id}】API端点: {api_url}")
-            logger.info(f"【{self.cookie_id}】请求方法: POST")
-            logger.info(f"【{self.cookie_id}】")
-            logger.info(f"【{self.cookie_id}】--- URL参数 (params) ---")
+            logger.debug(f"【{self.cookie_id}】========== Token刷新API调用详情 ==========")
+            logger.debug(f"【{self.cookie_id}】API端点: {api_url}")
+            logger.debug(f"【{self.cookie_id}】请求方法: POST")
+            logger.debug(f"【{self.cookie_id}】")
+            logger.debug(f"【{self.cookie_id}】--- URL参数 (params) ---")
             for key, value in sorted(params.items()):
                 # 对于敏感信息，只显示部分
                 if key == 'sign':
-                    logger.info(f"【{self.cookie_id}】  {key}: {value[:20]}...{value[-10:] if len(value) > 30 else value} (长度: {len(value)})")
+                    logger.debug(f"【{self.cookie_id}】  {key}: {value[:8]}...{value[-4:] if len(value) > 12 else '***'}")
                 else:
-                    logger.info(f"【{self.cookie_id}】  {key}: {value}")
-            logger.info(f"【{self.cookie_id}】")
-            logger.info(f"【{self.cookie_id}】--- 请求体 (data) ---")
-            logger.info(f"【{self.cookie_id}】  data: {data_val}")
-            logger.info(f"【{self.cookie_id}】")
-            logger.info(f"【{self.cookie_id}】--- 签名计算信息 ---")
-            logger.info(f"【{self.cookie_id}】  token (从_m_h5_tk提取): {token[:20]}...{token[-10:] if len(token) > 30 else token} (长度: {len(token)})")
-            logger.info(f"【{self.cookie_id}】  timestamp (t): {params['t']}")
-            logger.info(f"【{self.cookie_id}】  app_key: 34839810")
-            logger.info(f"【{self.cookie_id}】  data_val: {data_val}")
-            logger.info(f"【{self.cookie_id}】  计算签名: MD5({token}&{params['t']}&34839810&{data_val})")
-            logger.info(f"【{self.cookie_id}】  最终签名: {sign}")
-            logger.info(f"【{self.cookie_id}】")
-            logger.info(f"【{self.cookie_id}】--- 请求头 (headers) ---")
+                    logger.debug(f"【{self.cookie_id}】  {key}: {value}")
+            logger.debug(f"【{self.cookie_id}】")
+            logger.debug(f"【{self.cookie_id}】--- 请求体 (data) ---")
+            logger.debug(f"【{self.cookie_id}】  data: {data_val}")
+            logger.debug(f"【{self.cookie_id}】")
+            logger.debug(f"【{self.cookie_id}】--- 签名计算信息 ---")
+            # 安全修复：不再显示完整 token，只显示前4位和长度
+            logger.debug(f"【{self.cookie_id}】  token (从_m_h5_tk提取): {token[:4]}***（长度: {len(token)}）")
+            logger.debug(f"【{self.cookie_id}】  timestamp (t): {params['t']}")
+            logger.debug(f"【{self.cookie_id}】  app_key: 34839810")
+            logger.debug(f"【{self.cookie_id}】  data_val: {data_val}")
+            # 安全修复：不再显示完整签名计算公式
+            logger.debug(f"【{self.cookie_id}】  计算签名: MD5(token&timestamp&appkey&data)")
+            logger.debug(f"【{self.cookie_id}】  最终签名: {sign[:8]}...{sign[-4:] if len(sign) > 12 else '***'}")
+            logger.debug(f"【{self.cookie_id}】")
+            logger.debug(f"【{self.cookie_id}】--- 请求头 (headers) ---")
             for key, value in sorted(headers.items()):
                 if key == 'cookie':
-                    # Cookie很长，只显示关键信息
+                    # Cookie很长，只显示关键信息（脱敏）
                     cookie_dict = trans_cookies(self.cookies_str)
-                    logger.info(f"【{self.cookie_id}】  {key}: [Cookie字符串，长度: {len(value)}]")
-                    logger.info(f"【{self.cookie_id}】    Cookie字段数: {len(cookie_dict)}")
-                    logger.info(f"【{self.cookie_id}】    关键字段:")
+                    logger.debug(f"【{self.cookie_id}】  {key}: [Cookie字符串，长度: {len(value)}]")
+                    logger.debug(f"【{self.cookie_id}】    Cookie字段数: {len(cookie_dict)}")
+                    logger.debug(f"【{self.cookie_id}】    关键字段存在性:")
                     important_keys = ['unb', '_m_h5_tk', '_m_h5_tk_enc', 'cookie2', 't', 'sgcookie']
                     for k in important_keys:
                         if k in cookie_dict:
                             val = cookie_dict[k]
-                            if len(val) > 50:
-                                logger.info(f"【{self.cookie_id}】      {k}: {val[:30]}...{val[-20:]} (长度: {len(val)})")
-                            else:
-                                logger.info(f"【{self.cookie_id}】      {k}: {val}")
+                            # 安全修复：不显示完整值，只显示存在性和长度
+                            logger.debug(f"【{self.cookie_id}】      {k}: 已设置（长度: {len(val)}）")
                 else:
-                    logger.info(f"【{self.cookie_id}】  {key}: {value}")
-            logger.info(f"【{self.cookie_id}】")
-            logger.info(f"【{self.cookie_id}】--- 其他信息 ---")
-            logger.info(f"【{self.cookie_id}】  device_id: {self.device_id}")
-            logger.info(f"【{self.cookie_id}】  myid (unb): {self.myid}")
-            logger.info(f"【{self.cookie_id}】  完整Cookie字符串长度: {len(self.cookies_str)}")
-            logger.info(f"【{self.cookie_id}】==========================================")
+                    logger.debug(f"【{self.cookie_id}】  {key}: {value}")
+            logger.debug(f"【{self.cookie_id}】")
+            logger.debug(f"【{self.cookie_id}】--- 其他信息 ---")
+            # 安全修复：脱敏显示 device_id 和 myid
+            masked_device_id = f"{self.device_id[:8]}...{self.device_id[-4:]}" if len(self.device_id) > 16 else "***"
+            masked_myid = f"{self.myid[:4]}...{self.myid[-4:]}" if len(self.myid) > 12 else "***"
+            logger.debug(f"【{self.cookie_id}】  device_id: {masked_device_id}")
+            logger.debug(f"【{self.cookie_id}】  myid (unb): {masked_myid}")
+            logger.debug(f"【{self.cookie_id}】  完整Cookie字符串长度: {len(self.cookies_str)}")
+            logger.debug(f"【{self.cookie_id}】==========================================")
 
             async with aiohttp.ClientSession() as session:
                 async with session.post(
@@ -1452,14 +1455,16 @@ class XianyuLive:
                     headers=headers,
                     timeout=aiohttp.ClientTimeout(total=30)
                 ) as response:
-                    # 打印响应信息
-                    logger.info(f"【{self.cookie_id}】--- API响应信息 ---")
-                    logger.info(f"【{self.cookie_id}】  状态码: {response.status}")
-                    logger.info(f"【{self.cookie_id}】  响应头: {dict(response.headers)}")
-                    
+                    # 安全修复：调试信息降级为 debug 级别
+                    logger.debug(f"【{self.cookie_id}】--- API响应信息 ---")
+                    logger.debug(f"【{self.cookie_id}】  状态码: {response.status}")
+                    # 安全修复：响应头可能包含敏感信息，只在 debug 模式显示
+                    logger.debug(f"【{self.cookie_id}】  响应头数量: {len(response.headers)}")
+
                     res_json = await response.json()
-                    logger.info(f"【{self.cookie_id}】  响应内容: {json.dumps(res_json, ensure_ascii=False, indent=2)}")
-                    logger.info(f"【{self.cookie_id}】================================")
+                    # 安全修复：响应内容可能包含敏感信息，只在 debug 模式显示
+                    logger.debug(f"【{self.cookie_id}】  响应内容: {json.dumps(res_json, ensure_ascii=False, indent=2)}")
+                    logger.debug(f"【{self.cookie_id}】================================")
 
                     # 检查并更新Cookie
                     if 'set-cookie' in response.headers:
@@ -2925,7 +2930,8 @@ class XianyuLive:
         token = trans_cookies(self.cookies_str).get('_m_h5_tk', '').split('_')[0] if trans_cookies(self.cookies_str).get('_m_h5_tk') else ''
 
         if token:
-            logger.warning(f"使用cookies中的_m_h5_tk token: {token}")
+            # 安全修复：脱敏显示 token，只显示存在性和长度
+            logger.debug(f"使用cookies中的_m_h5_tk token: 已设置（长度: {len(token)}）")
         else:
             logger.warning("cookies中没有找到_m_h5_tk token")
 
@@ -5864,16 +5870,25 @@ class XianyuLive:
                     # 标记是否发生了变化
                     change_mark = " [已变化]" if cookie_name in changed_cookies else " [新增]" if cookie_name in new_cookies else " [无变化]"
 
-                    # 显示完整的cookie值
+                    # 安全修复：脱敏显示Cookie值，只显示前4位和后4位
+                    if len(cookie_value) > 12:
+                        masked_value = f"{cookie_value[:4]}...{cookie_value[-4:]}"
+                    else:
+                        masked_value = "***"
+
                     logger.info(f"【{target_cookie_id}】{cookie_name}{change_mark}:")
-                    logger.info(f"【{target_cookie_id}】  值: {cookie_value}")
+                    logger.info(f"【{target_cookie_id}】  值: {masked_value}")
                     logger.info(f"【{target_cookie_id}】  长度: {len(cookie_value)}")
 
-                    # 如果有对应的扫码cookie值，显示对比
+                    # 如果有对应的扫码cookie值，显示对比（脱敏）
                     if cookie_name in qr_cookies_dict:
                         old_value = qr_cookies_dict[cookie_name]
                         if old_value != cookie_value:
-                            logger.info(f"【{target_cookie_id}】  原值: {old_value}")
+                            if len(old_value) > 12:
+                                masked_old = f"{old_value[:4]}...{old_value[-4:]}"
+                            else:
+                                masked_old = "***"
+                            logger.info(f"【{target_cookie_id}】  原值: {masked_old}")
                             logger.info(f"【{target_cookie_id}】  原长度: {len(old_value)}")
                     logger.info(f"【{target_cookie_id}】  ---")
                 else:
@@ -8142,9 +8157,10 @@ class XianyuLive:
         # 始终从最新的cookies中获取_m_h5_tk token（刷新后cookies会被更新）
         token = trans_cookies(self.cookies_str).get('_m_h5_tk', '').split('_')[0] if trans_cookies(self.cookies_str).get('_m_h5_tk') else ''
 
-        logger.warning(f"准备获取商品列表，token: {token}")
+        # 安全修复：脱敏显示 token，只显示存在性和长度
+        logger.debug(f"准备获取商品列表，token: {'已设置' if token else '未设置'}（长度: {len(token) if token else 0}）")
         if token:
-            logger.warning(f"使用cookies中的_m_h5_tk token: {token}")
+            logger.debug(f"使用cookies中的_m_h5_tk token: 已设置（长度: {len(token)}）")
         else:
             logger.warning("cookies中没有找到_m_h5_tk token")
 

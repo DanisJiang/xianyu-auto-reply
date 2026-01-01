@@ -6,6 +6,7 @@ import time
 import json
 import random
 import string
+import secrets
 import aiohttp
 import io
 import base64
@@ -13,9 +14,35 @@ from PIL import Image, ImageDraw, ImageFont
 from typing import List, Tuple, Dict, Optional, Any
 from loguru import logger
 
+# 安全修复：使用 bcrypt 进行密码哈希（带盐，防彩虹表攻击）
+try:
+    from passlib.hash import bcrypt
+    BCRYPT_AVAILABLE = True
+except ImportError:
+    BCRYPT_AVAILABLE = False
+    logger.warning("passlib[bcrypt] 未安装，将使用 SHA256 作为后备方案（不推荐）")
+
 class DBManager:
     """SQLite数据库管理，持久化存储Cookie和关键字"""
-    
+
+    # 安全修复：表名白名单，防止SQL注入
+    ALLOWED_TABLES = frozenset([
+        'users', 'cookies', 'keywords', 'cookie_status', 'cards',
+        'delivery_rules', 'default_replies', 'notification_channels',
+        'message_notifications', 'system_settings', 'item_info',
+        'ai_reply_settings', 'ai_conversations', 'ai_item_cache',
+        'email_verifications', 'orders', 'old_notification_channels',
+        'captcha_codes', 'item_replay', 'default_reply_records',
+        'user_settings', 'risk_control_logs', 'sessions'
+    ])
+
+    def _validate_table_name(self, table_name: str) -> bool:
+        """验证表名是否在白名单中，防止SQL注入"""
+        if table_name not in self.ALLOWED_TABLES:
+            logger.error(f"安全警告：尝试访问未授权的表名: {table_name}")
+            return False
+        return True
+
     def __init__(self, db_path: str = None):
         """初始化数据库连接和表结构"""
         # 支持环境变量配置数据库路径
@@ -78,6 +105,7 @@ class DBManager:
                 email TEXT UNIQUE NOT NULL,
                 password_hash TEXT NOT NULL,
                 is_active BOOLEAN DEFAULT TRUE,
+                password_must_change BOOLEAN DEFAULT FALSE,
                 created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                 updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
             )
@@ -105,6 +133,29 @@ class DBManager:
                 created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
             )
             ''')
+
+            # 安全修复：创建用户会话表（支持会话持久化和撤销）
+            cursor.execute('''
+            CREATE TABLE IF NOT EXISTS sessions (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                token TEXT UNIQUE NOT NULL,
+                user_id INTEGER NOT NULL,
+                username TEXT NOT NULL,
+                is_admin BOOLEAN DEFAULT FALSE,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                expires_at TIMESTAMP NOT NULL,
+                revoked BOOLEAN DEFAULT FALSE,
+                revoked_at TIMESTAMP,
+                ip_address TEXT,
+                user_agent TEXT,
+                FOREIGN KEY (user_id) REFERENCES users (id)
+            )
+            ''')
+
+            # 为 sessions 表创建索引以提高查询性能
+            cursor.execute('CREATE INDEX IF NOT EXISTS idx_sessions_token ON sessions(token)')
+            cursor.execute('CREATE INDEX IF NOT EXISTS idx_sessions_user_id ON sessions(user_id)')
+            cursor.execute('CREATE INDEX IF NOT EXISTS idx_sessions_expires ON sessions(expires_at)')
 
             # 创建cookies表（添加user_id字段和auto_confirm字段）
             cursor.execute('''
@@ -442,6 +493,7 @@ class DBManager:
             ''')
 
             # 插入默认系统设置（不包括管理员密码，由reply_server.py初始化）
+            # 注意：qq_reply_secret_key 将在首次使用时自动生成安全的随机密钥
             cursor.execute('''
             INSERT OR IGNORE INTO system_settings (key, value, description) VALUES
             ('theme_color', 'blue', '主题颜色'),
@@ -454,8 +506,7 @@ class DBManager:
             ('smtp_password', '', 'SMTP登录密码/授权码'),
             ('smtp_from', '', '发件人显示名（留空则使用用户名）'),
             ('smtp_use_tls', 'true', '是否启用TLS'),
-            ('smtp_use_ssl', 'false', '是否启用SSL'),
-            ('qq_reply_secret_key', 'xianyu_qq_reply_2024', 'QQ回复消息API秘钥')
+            ('smtp_use_ssl', 'false', '是否启用SSL')
             ''')
 
             # 检查并升级数据库
@@ -500,6 +551,30 @@ class DBManager:
                 logger.info("添加cookies表的pause_duration列...")
                 cursor.execute("ALTER TABLE cookies ADD COLUMN pause_duration INTEGER DEFAULT 10")
                 logger.info("数据库迁移完成：添加pause_duration列")
+
+            # 检查users表是否存在password_must_change列
+            cursor.execute("PRAGMA table_info(users)")
+            user_columns = [column[1] for column in cursor.fetchall()]
+
+            if 'password_must_change' not in user_columns:
+                logger.info("添加users表的password_must_change列...")
+                cursor.execute("ALTER TABLE users ADD COLUMN password_must_change BOOLEAN DEFAULT FALSE")
+
+                # 检查admin用户是否仍在使用默认密码，如果是则强制修改
+                default_password_hash = hashlib.sha256("admin123".encode()).hexdigest()
+                cursor.execute(
+                    "UPDATE users SET password_must_change = TRUE WHERE username = 'admin' AND password_hash = ?",
+                    (default_password_hash,)
+                )
+                if cursor.rowcount > 0:
+                    logger.warning("检测到admin用户使用默认密码，已设置强制修改密码标志")
+                    print("\n" + "=" * 60)
+                    print("  *** 安全警告 ***")
+                    print("  检测到admin用户仍在使用默认密码 'admin123'")
+                    print("  请立即登录并修改密码！")
+                    print("=" * 60 + "\n")
+
+                logger.info("数据库迁移完成：添加password_must_change列")
 
         except Exception as e:
             logger.error(f"数据库迁移失败: {e}")
@@ -631,6 +706,79 @@ class DBManager:
             logger.error(f"数据库版本检查或升级失败: {e}")
             raise
             
+    def _generate_secure_password(self, length: int = 16) -> str:
+        """生成安全的随机密码"""
+        # 使用字母、数字组合，避免特殊字符以减少输入错误
+        alphabet = string.ascii_letters + string.digits
+        return ''.join(secrets.choice(alphabet) for _ in range(length))
+
+    def _hash_password(self, password: str) -> str:
+        """
+        安全地哈希密码
+
+        使用 bcrypt 算法（如果可用），否则回退到 SHA256。
+        bcrypt 自动生成盐值并包含在哈希中，防止彩虹表攻击。
+
+        Args:
+            password: 明文密码
+
+        Returns:
+            密码哈希值
+        """
+        if BCRYPT_AVAILABLE:
+            # 使用 bcrypt，rounds=12 提供良好的安全性和性能平衡
+            return bcrypt.using(rounds=12).hash(password)
+        else:
+            # 回退方案：SHA256（不推荐，仅在 bcrypt 不可用时使用）
+            logger.warning("使用 SHA256 哈希密码（不推荐，请安装 passlib[bcrypt]）")
+            return hashlib.sha256(password.encode()).hexdigest()
+
+    def _verify_password(self, password: str, password_hash: str) -> bool:
+        """
+        验证密码是否匹配哈希
+
+        支持验证 bcrypt 哈希和旧的 SHA256 哈希（向后兼容）。
+        bcrypt 哈希以 $2b$ 或 $2a$ 开头。
+
+        Args:
+            password: 明文密码
+            password_hash: 存储的密码哈希
+
+        Returns:
+            密码是否匹配
+        """
+        # 检测哈希类型
+        if password_hash.startswith('$2b$') or password_hash.startswith('$2a$') or password_hash.startswith('$2y$'):
+            # bcrypt 哈希
+            if BCRYPT_AVAILABLE:
+                try:
+                    return bcrypt.verify(password, password_hash)
+                except Exception as e:
+                    logger.error(f"bcrypt 验证失败: {e}")
+                    return False
+            else:
+                logger.error("密码使用 bcrypt 哈希，但 bcrypt 不可用")
+                return False
+        else:
+            # 旧的 SHA256 哈希（向后兼容）
+            sha256_hash = hashlib.sha256(password.encode()).hexdigest()
+            return secrets.compare_digest(password_hash, sha256_hash)
+
+    def _should_upgrade_password_hash(self, password_hash: str) -> bool:
+        """
+        检查密码哈希是否需要升级到 bcrypt
+
+        Args:
+            password_hash: 存储的密码哈希
+
+        Returns:
+            是否需要升级
+        """
+        if not BCRYPT_AVAILABLE:
+            return False
+        # 如果不是 bcrypt 哈希，则需要升级
+        return not (password_hash.startswith('$2b$') or password_hash.startswith('$2a$') or password_hash.startswith('$2y$'))
+
     def update_admin_user_id(self, cursor):
         """更新admin用户ID"""
         try:
@@ -640,13 +788,33 @@ class DBManager:
             admin_exists = cursor.fetchone()[0] > 0
 
             if not admin_exists:
-                # 首次创建admin用户，设置默认密码
-                default_password_hash = hashlib.sha256("admin123".encode()).hexdigest()
+                # 首次创建admin用户，生成安全的随机密码
+                generated_password = self._generate_secure_password()
+                # 使用 bcrypt 哈希密码（安全修复）
+                password_hash = self._hash_password(generated_password)
                 cursor.execute('''
-                INSERT INTO users (username, email, password_hash) VALUES
-                ('admin', 'admin@localhost', ?)
-                ''', (default_password_hash,))
-                logger.info("创建默认admin用户，密码: admin123")
+                INSERT INTO users (username, email, password_hash, password_must_change) VALUES
+                ('admin', 'admin@localhost', ?, TRUE)
+                ''', (password_hash,))
+
+                # 安全地显示初始密码（只打印一次，不记录到日志）
+                print("\n" + "=" * 60)
+                print("  首次运行 - 管理员账户已创建")
+                print("=" * 60)
+                print(f"  用户名: admin")
+                print(f"  初始密码: {generated_password}")
+                print("=" * 60)
+                print("  *** 请立即登录并修改密码！***")
+                print("  *** 此密码只显示一次，请妥善保存！***")
+                print("=" * 60 + "\n")
+
+                # 同时保存到临时文件（首次运行后应删除）
+                try:
+                    with open('data/INITIAL_ADMIN_PASSWORD.txt', 'w') as f:
+                        f.write(f"管理员初始密码: {generated_password}\n")
+                        f.write("请登录后立即修改密码，并删除此文件！\n")
+                except:
+                    pass
 
             # 获取admin用户ID，用于历史数据绑定
             self._execute_sql(cursor, "SELECT id FROM users WHERE username = 'admin'")
@@ -1012,6 +1180,12 @@ class DBManager:
 
     def _migrate_table_data(self, cursor, table_name: str):
         """迁移指定表的数据"""
+        # 安全修复：验证表名在白名单中
+        allowed_legacy_tables = {'old_notification_channels', 'legacy_delivery_rules', 'old_keywords', 'backup_cookies'}
+        if table_name not in allowed_legacy_tables:
+            logger.error(f"安全警告：尝试迁移未授权的表: {table_name}")
+            return
+
         try:
             if table_name == 'old_notification_channels':
                 # 迁移通知渠道数据
@@ -2308,6 +2482,9 @@ class DBManager:
                                         'item_info', 'ai_reply_settings', 'ai_conversations']
 
                         for table in related_tables:
+                            # 安全修复：验证表名在白名单中
+                            if not self._validate_table_name(table):
+                                continue
                             cursor.execute(f"SELECT * FROM {table} WHERE cookie_id IN ({placeholders})", user_cookie_ids)
                             columns = [description[0] for description in cursor.description]
                             rows = cursor.fetchall()
@@ -2325,6 +2502,9 @@ class DBManager:
                     ]
 
                     for table in tables:
+                        # 安全修复：验证表名在白名单中
+                        if not self._validate_table_name(table):
+                            continue
                         cursor.execute(f"SELECT * FROM {table}")
                         columns = [description[0] for description in cursor.description]
                         rows = cursor.fetchall()
@@ -2486,7 +2666,8 @@ class DBManager:
         with self.lock:
             try:
                 cursor = self.conn.cursor()
-                password_hash = hashlib.sha256(password.encode()).hexdigest()
+                # 使用 bcrypt 哈希密码（安全修复）
+                password_hash = self._hash_password(password)
 
                 cursor.execute('''
                 INSERT INTO users (username, email, password_hash)
@@ -2510,22 +2691,40 @@ class DBManager:
         with self.lock:
             try:
                 cursor = self.conn.cursor()
-                cursor.execute('''
-                SELECT id, username, email, password_hash, is_active, created_at, updated_at
-                FROM users WHERE username = ?
-                ''', (username,))
+                # 尝试查询包含password_must_change列
+                try:
+                    cursor.execute('''
+                    SELECT id, username, email, password_hash, is_active, created_at, updated_at, password_must_change
+                    FROM users WHERE username = ?
+                    ''', (username,))
+                    has_password_must_change = True
+                except Exception as col_error:
+                    # 如果列不存在（数据库迁移失败的情况），回退到不包含该列的查询
+                    if 'no such column' in str(col_error).lower():
+                        logger.warning("password_must_change列不存在，使用兼容模式查询")
+                        cursor.execute('''
+                        SELECT id, username, email, password_hash, is_active, created_at, updated_at
+                        FROM users WHERE username = ?
+                        ''', (username,))
+                        has_password_must_change = False
+                    else:
+                        raise
 
                 row = cursor.fetchone()
                 if row:
-                    return {
+                    result = {
                         'id': row[0],
                         'username': row[1],
                         'email': row[2],
                         'password_hash': row[3],
                         'is_active': row[4],
                         'created_at': row[5],
-                        'updated_at': row[6]
+                        'updated_at': row[6],
+                        'password_must_change': False  # 默认值
                     }
+                    if has_password_must_change and len(row) > 7:
+                        result['password_must_change'] = bool(row[7]) if row[7] is not None else False
+                    return result
                 return None
             except Exception as e:
                 logger.error(f"获取用户信息失败: {e}")
@@ -2536,42 +2735,90 @@ class DBManager:
         with self.lock:
             try:
                 cursor = self.conn.cursor()
-                cursor.execute('''
-                SELECT id, username, email, password_hash, is_active, created_at, updated_at
-                FROM users WHERE email = ?
-                ''', (email,))
+                # 尝试查询包含password_must_change列
+                try:
+                    cursor.execute('''
+                    SELECT id, username, email, password_hash, is_active, created_at, updated_at, password_must_change
+                    FROM users WHERE email = ?
+                    ''', (email,))
+                    has_password_must_change = True
+                except Exception as col_error:
+                    # 如果列不存在（数据库迁移失败的情况），回退到不包含该列的查询
+                    if 'no such column' in str(col_error).lower():
+                        logger.warning("password_must_change列不存在，使用兼容模式查询")
+                        cursor.execute('''
+                        SELECT id, username, email, password_hash, is_active, created_at, updated_at
+                        FROM users WHERE email = ?
+                        ''', (email,))
+                        has_password_must_change = False
+                    else:
+                        raise
 
                 row = cursor.fetchone()
                 if row:
-                    return {
+                    result = {
                         'id': row[0],
                         'username': row[1],
                         'email': row[2],
                         'password_hash': row[3],
                         'is_active': row[4],
                         'created_at': row[5],
-                        'updated_at': row[6]
+                        'updated_at': row[6],
+                        'password_must_change': False  # 默认值
                     }
+                    if has_password_must_change and len(row) > 7:
+                        result['password_must_change'] = bool(row[7]) if row[7] is not None else False
+                    return result
                 return None
             except Exception as e:
                 logger.error(f"获取用户信息失败: {e}")
                 return None
 
     def verify_user_password(self, username: str, password: str) -> bool:
-        """验证用户密码"""
+        """
+        验证用户密码
+
+        支持 bcrypt 和旧的 SHA256 哈希（向后兼容）。
+        如果验证成功且使用的是旧的 SHA256 哈希，会自动升级为 bcrypt。
+        """
         user = self.get_user_by_username(username)
         if not user:
             return False
 
-        password_hash = hashlib.sha256(password.encode()).hexdigest()
-        return user['password_hash'] == password_hash and user['is_active']
+        if not user['is_active']:
+            return False
+
+        password_hash = user['password_hash']
+
+        # 使用统一的密码验证方法
+        if not self._verify_password(password, password_hash):
+            return False
+
+        # 如果验证成功且需要升级哈希，则自动升级
+        if self._should_upgrade_password_hash(password_hash):
+            try:
+                new_hash = self._hash_password(password)
+                with self.lock:
+                    cursor = self.conn.cursor()
+                    cursor.execute('''
+                    UPDATE users SET password_hash = ?, updated_at = CURRENT_TIMESTAMP
+                    WHERE username = ?
+                    ''', (new_hash, username))
+                    self.conn.commit()
+                    logger.info(f"用户 {username} 的密码哈希已自动升级为 bcrypt")
+            except Exception as e:
+                # 升级失败不影响登录
+                logger.warning(f"自动升级密码哈希失败: {e}")
+
+        return True
 
     def update_user_password(self, username: str, new_password: str) -> bool:
         """更新用户密码"""
         with self.lock:
             try:
                 cursor = self.conn.cursor()
-                password_hash = hashlib.sha256(new_password.encode()).hexdigest()
+                # 使用 bcrypt 哈希密码（安全修复）
+                password_hash = self._hash_password(new_password)
 
                 cursor.execute('''
                 UPDATE users SET password_hash = ?, updated_at = CURRENT_TIMESTAMP
@@ -2590,6 +2837,226 @@ class DBManager:
                 logger.error(f"更新用户密码失败: {e}")
                 self.conn.rollback()
                 return False
+
+    def clear_password_must_change(self, username: str) -> bool:
+        """清除用户的强制修改密码标志"""
+        with self.lock:
+            try:
+                cursor = self.conn.cursor()
+                cursor.execute('''
+                UPDATE users SET password_must_change = FALSE, updated_at = CURRENT_TIMESTAMP
+                WHERE username = ?
+                ''', (username,))
+
+                if cursor.rowcount > 0:
+                    self.conn.commit()
+                    logger.info(f"用户 {username} 强制修改密码标志已清除")
+                    return True
+                else:
+                    return False
+
+            except Exception as e:
+                logger.error(f"清除强制修改密码标志失败: {e}")
+                self.conn.rollback()
+                return False
+
+    # ==================== 会话管理方法 ====================
+
+    def create_session(self, token: str, user_id: int, username: str, is_admin: bool = False,
+                       expire_seconds: int = 86400, ip_address: str = None, user_agent: str = None) -> bool:
+        """
+        创建新的用户会话
+
+        Args:
+            token: 会话令牌
+            user_id: 用户ID
+            username: 用户名
+            is_admin: 是否为管理员
+            expire_seconds: 过期时间（秒），默认24小时
+            ip_address: 客户端IP地址
+            user_agent: 客户端User-Agent
+
+        Returns:
+            是否创建成功
+        """
+        with self.lock:
+            try:
+                cursor = self.conn.cursor()
+                expires_at = time.time() + expire_seconds
+
+                cursor.execute('''
+                INSERT INTO sessions (token, user_id, username, is_admin, expires_at, ip_address, user_agent)
+                VALUES (?, ?, ?, ?, datetime(?, 'unixepoch'), ?, ?)
+                ''', (token, user_id, username, is_admin, expires_at, ip_address, user_agent))
+
+                self.conn.commit()
+                logger.debug(f"创建会话成功: user_id={user_id}, username={username}")
+                return True
+
+            except Exception as e:
+                logger.error(f"创建会话失败: {e}")
+                self.conn.rollback()
+                return False
+
+    def get_session(self, token: str) -> Optional[Dict[str, Any]]:
+        """
+        获取会话信息
+
+        Args:
+            token: 会话令牌
+
+        Returns:
+            会话信息字典，如果不存在或已过期/撤销则返回 None
+        """
+        with self.lock:
+            try:
+                cursor = self.conn.cursor()
+                cursor.execute('''
+                SELECT id, token, user_id, username, is_admin, created_at, expires_at, revoked, ip_address, user_agent
+                FROM sessions
+                WHERE token = ? AND revoked = FALSE AND expires_at > datetime('now')
+                ''', (token,))
+
+                row = cursor.fetchone()
+                if row:
+                    return {
+                        'id': row[0],
+                        'token': row[1],
+                        'user_id': row[2],
+                        'username': row[3],
+                        'is_admin': bool(row[4]),
+                        'created_at': row[5],
+                        'expires_at': row[6],
+                        'revoked': bool(row[7]),
+                        'ip_address': row[8],
+                        'user_agent': row[9]
+                    }
+                return None
+
+            except Exception as e:
+                logger.error(f"获取会话失败: {e}")
+                return None
+
+    def revoke_session(self, token: str) -> bool:
+        """
+        撤销指定的会话（登出）
+
+        Args:
+            token: 会话令牌
+
+        Returns:
+            是否撤销成功
+        """
+        with self.lock:
+            try:
+                cursor = self.conn.cursor()
+                cursor.execute('''
+                UPDATE sessions SET revoked = TRUE, revoked_at = datetime('now')
+                WHERE token = ?
+                ''', (token,))
+
+                if cursor.rowcount > 0:
+                    self.conn.commit()
+                    logger.debug(f"撤销会话成功")
+                    return True
+                return False
+
+            except Exception as e:
+                logger.error(f"撤销会话失败: {e}")
+                self.conn.rollback()
+                return False
+
+    def revoke_user_sessions(self, user_id: int) -> int:
+        """
+        撤销指定用户的所有会话（用于密码修改后强制登出）
+
+        Args:
+            user_id: 用户ID
+
+        Returns:
+            撤销的会话数量
+        """
+        with self.lock:
+            try:
+                cursor = self.conn.cursor()
+                cursor.execute('''
+                UPDATE sessions SET revoked = TRUE, revoked_at = datetime('now')
+                WHERE user_id = ? AND revoked = FALSE
+                ''', (user_id,))
+
+                count = cursor.rowcount
+                if count > 0:
+                    self.conn.commit()
+                    logger.info(f"撤销用户 {user_id} 的 {count} 个会话")
+                return count
+
+            except Exception as e:
+                logger.error(f"撤销用户会话失败: {e}")
+                self.conn.rollback()
+                return 0
+
+    def cleanup_expired_sessions(self) -> int:
+        """
+        清理过期的会话记录
+
+        Returns:
+            清理的会话数量
+        """
+        with self.lock:
+            try:
+                cursor = self.conn.cursor()
+                # 删除7天前过期的会话
+                cursor.execute('''
+                DELETE FROM sessions
+                WHERE expires_at < datetime('now', '-7 days')
+                ''')
+
+                count = cursor.rowcount
+                if count > 0:
+                    self.conn.commit()
+                    logger.info(f"清理了 {count} 个过期会话")
+                return count
+
+            except Exception as e:
+                logger.error(f"清理过期会话失败: {e}")
+                self.conn.rollback()
+                return 0
+
+    def get_user_active_sessions(self, user_id: int) -> List[Dict[str, Any]]:
+        """
+        获取用户的所有活跃会话
+
+        Args:
+            user_id: 用户ID
+
+        Returns:
+            活跃会话列表
+        """
+        with self.lock:
+            try:
+                cursor = self.conn.cursor()
+                cursor.execute('''
+                SELECT id, token, created_at, expires_at, ip_address, user_agent
+                FROM sessions
+                WHERE user_id = ? AND revoked = FALSE AND expires_at > datetime('now')
+                ORDER BY created_at DESC
+                ''', (user_id,))
+
+                sessions = []
+                for row in cursor.fetchall():
+                    sessions.append({
+                        'id': row[0],
+                        'token_preview': row[1][:8] + '...' if row[1] else None,  # 只显示前8位
+                        'created_at': row[2],
+                        'expires_at': row[3],
+                        'ip_address': row[4],
+                        'user_agent': row[5]
+                    })
+                return sessions
+
+            except Exception as e:
+                logger.error(f"获取用户活跃会话失败: {e}")
+                return []
 
     def generate_verification_code(self) -> str:
         """生成6位数字验证码"""
@@ -2852,42 +3319,14 @@ class DBManager:
             return True
         except Exception as e:
             logger.error(f"SMTP发送验证码邮件失败: {e}")
-            # SMTP发送失败，尝试使用API方式
-            logger.info(f"SMTP发送失败，尝试使用API方式发送: {email}")
-            return await self._send_email_via_api(email, subject, text_content)
+            # 不再回退到外部API，直接返回失败
+            return False
 
     async def _send_email_via_api(self, email: str, subject: str, text_content: str) -> bool:
-        """使用API方式发送邮件"""
-        try:
-            import aiohttp
-
-            # 使用GET请求发送邮件
-            api_url = "https://dy.zhinianboke.com/api/emailSend"
-            params = {
-                'subject': subject,
-                'receiveUser': email,
-                'sendHtml': text_content
-            }
-
-            async with aiohttp.ClientSession() as session:
-                try:
-                    logger.info(f"使用API发送验证码邮件: {email}")
-                    async with session.get(api_url, params=params, timeout=15) as response:
-                        response_text = await response.text()
-                        logger.info(f"邮件API响应: {response.status}")
-
-                        if response.status == 200:
-                            logger.info(f"验证码邮件发送成功(API): {email}")
-                            return True
-                        else:
-                            logger.error(f"API发送验证码邮件失败: {email}, 状态码: {response.status}, 响应: {response_text[:200]}")
-                            return False
-                except Exception as e:
-                    logger.error(f"API邮件发送异常: {email}, 错误: {e}")
-                    return False
-        except Exception as e:
-            logger.error(f"API邮件发送方法异常: {e}")
-            return False
+        """使用API方式发送邮件 - 已禁用外部API，请配置SMTP"""
+        # 安全修复：移除外部邮件API调用，避免用户数据外泄
+        logger.error(f"邮件发送失败: 请在系统设置中配置SMTP服务器，不支持外部API发送")
+        return False
 
     # ==================== 卡券管理方法 ====================
 
@@ -4432,6 +4871,11 @@ class DBManager:
 
     def get_table_data(self, table_name: str):
         """获取指定表的所有数据"""
+        # 安全修复：验证表名在白名单中，防止SQL注入
+        if not self._validate_table_name(table_name):
+            logger.error(f"拒绝访问未授权的表: {table_name}")
+            return [], []
+
         with self.lock:
             try:
                 cursor = self.conn.cursor()
@@ -4662,6 +5106,11 @@ class DBManager:
 
     def delete_table_record(self, table_name: str, record_id: str):
         """删除指定表的指定记录"""
+        # 安全修复：验证表名在白名单中，防止SQL注入
+        if not self._validate_table_name(table_name):
+            logger.error(f"拒绝删除记录：未授权的表名 {table_name}")
+            return False
+
         with self.lock:
             try:
                 cursor = self.conn.cursor()
@@ -4710,6 +5159,11 @@ class DBManager:
 
     def clear_table_data(self, table_name: str):
         """清空指定表的所有数据"""
+        # 安全修复：验证表名在白名单中，防止SQL注入
+        if not self._validate_table_name(table_name):
+            logger.error(f"拒绝清空表：未授权的表名 {table_name}")
+            return False
+
         with self.lock:
             try:
                 cursor = self.conn.cursor()

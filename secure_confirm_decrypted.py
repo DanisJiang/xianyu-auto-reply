@@ -122,7 +122,8 @@ class SecureConfirm:
         token = trans_cookies(self.cookies_str).get('_m_h5_tk', '').split('_')[0] if trans_cookies(self.cookies_str).get('_m_h5_tk') else ''
 
         if token:
-            logger.info(f"使用cookies中的_m_h5_tk token: {token}")
+            # 安全修复：脱敏显示 token，只显示存在性和长度
+            logger.debug(f"使用cookies中的_m_h5_tk token: 已设置（长度: {len(token)}）")
         else:
             logger.warning("cookies中没有找到_m_h5_tk token")
 

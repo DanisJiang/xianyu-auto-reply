@@ -538,6 +538,97 @@ curl "http://notice.zhinianblog.cn/sendPrivateMsg?qq=test&msg=test"
 
 </details>
 
+<details>
+<summary>✅ 安全修复说明（2026年1月更新）</summary>
+
+# 安全漏洞修复报告
+
+**修复日期**: 2026-01-01
+**修复版本**: 本仓库分支
+**状态**: ✅ 已修复
+
+---
+
+## 已修复的安全问题
+
+### 1. 密码安全增强
+| 问题 | 修复措施 |
+|-----|---------|
+| SHA256无盐哈希 | ✅ 升级为bcrypt带盐哈希 |
+| 硬编码默认密码 | ✅ 首次启动生成随机密码，强制修改 |
+| 密码明文日志 | ✅ 已移除所有密码日志输出 |
+
+### 2. 会话管理增强
+| 问题 | 修复措施 |
+|-----|---------|
+| 内存会话易丢失 | ✅ 会话持久化到数据库 |
+| 无法撤销会话 | ✅ 支持会话撤销机制 |
+| 密码修改后会话保留 | ✅ 修改密码自动撤销所有会话 |
+
+### 3. Docker配置安全
+| 问题 | 修复措施 |
+|-----|---------|
+| 默认JWT密钥 | ✅ 已移除，需用户配置 |
+| 默认管理员密码 | ✅ 已移除，系统自动生成 |
+
+### 4. 日志安全清理
+| 敏感信息 | 处理方式 |
+|---------|---------|
+| API密钥 | ✅ 脱敏显示（只显示长度） |
+| Cookie值 | ✅ 脱敏显示（首尾各4位） |
+| Token值 | ✅ 脱敏显示或降级为debug级别 |
+| device_id/myid | ✅ 脱敏显示 |
+
+### 5. SQL注入防护
+| 问题 | 修复措施 |
+|-----|---------|
+| 动态表名无验证 | ✅ 添加表名白名单验证 |
+| delete/clear操作 | ✅ 统一应用白名单检查 |
+
+### 6. exec()混淆代码
+| 文件 | 处理方式 |
+|-----|---------|
+| secure_confirm_ultra.py | ✅ 已禁用，抛出ImportError |
+| secure_freeshipping_ultra.py | ✅ 已禁用，抛出ImportError |
+
+### 7. 路径遍历防护
+| 函数 | 修复措施 |
+|-----|---------|
+| delete_image() | ✅ 添加路径验证，防止任意文件删除 |
+| get_image_info() | ✅ 添加路径验证，防止任意文件读取 |
+
+---
+
+## 安全建议
+
+部署后请务必：
+
+1. **修改管理员密码** - 首次登录后立即修改随机生成的密码
+2. **配置JWT密钥** - 设置环境变量 `JWT_SECRET_KEY` 为强密钥
+3. **限制网络访问** - 不要将8080端口直接暴露到公网
+4. **定期备份** - 使用管理面板的备份功能
+5. **检查日志** - 定期检查logs目录中的异常访问
+
+---
+
+## 修改的文件列表
+
+| 文件 | 修改内容 |
+|-----|---------|
+| `db_manager.py` | bcrypt密码哈希、会话管理、SQL防护 |
+| `reply_server.py` | 会话持久化、API密钥脱敏 |
+| `docker-compose.yml` | 移除不安全默认值 |
+| `docker-compose-cn.yml` | 移除不安全默认值 |
+| `XianyuAutoAsync.py` | 敏感日志清理 |
+| `utils/image_utils.py` | 路径遍历防护 |
+| `utils/xianyu_slider_stealth.py` | Cookie日志脱敏 |
+| `secure_confirm_ultra.py` | 禁用exec()代码 |
+| `secure_freeshipping_ultra.py` | 禁用exec()代码 |
+| `secure_confirm_decrypted.py` | Token日志脱敏 |
+| `secure_freeshipping_decrypted.py` | Token日志脱敏 |
+
+</details>
+
 
 # 🐟 闲鱼自动回复系统
 

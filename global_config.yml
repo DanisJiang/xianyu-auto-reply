@@ -20,8 +20,8 @@ AUTO_REPLY:
   retry_interval: 5
 ITEM_DETAIL:
   auto_fetch:
-    enabled: true  # 是否启用自动获取商品详情
-    api_url: https://selfapi.zhinianboke.com/api/getItemDetail  # 外部API地址
+    enabled: false  # 安全修复：默认禁用外部API调用
+    api_url: ""  # 安全修复：移除外部API地址，如需使用请自行配置本地API
     timeout: 30  # 请求超时时间（秒）
     max_concurrent: 3  # 最大并发请求数
     retry_delay: 0.5  # 请求间隔（秒）

@@ -41,7 +41,8 @@ KEYWORDS_FILE = Path(__file__).parent / "回复关键字.txt"
 
 # 简单的用户认证配置
 ADMIN_USERNAME = "admin"
-DEFAULT_ADMIN_PASSWORD = "admin123"  # 系统初始化时的默认密码
+# 安全修复：移除硬编码默认密码，系统将自动生成随机密码
+# 初始密码在首次运行时生成，显示在控制台并保存到 data/INITIAL_ADMIN_PASSWORD.txt
 SESSION_TOKENS = {}  # 存储会话token: {token: {'user_id': int, 'username': str, 'timestamp': float}}
 TOKEN_EXPIRE_TIME = 24 * 60 * 60  # token过期时间：24小时
 
@@ -124,6 +125,7 @@ class LoginResponse(BaseModel):
     user_id: Optional[int] = None
     username: Optional[str] = None
     is_admin: Optional[bool] = None
+    password_must_change: Optional[bool] = None
 
 
 class ChangePasswordRequest(BaseModel):
@@ -181,22 +183,50 @@ def generate_token() -> str:
 
 
 def verify_token(credentials: Optional[HTTPAuthorizationCredentials] = Depends(security)) -> Optional[Dict[str, Any]]:
-    """验证token并返回用户信息"""
+    """
+    验证token并返回用户信息
+
+    安全修复：使用数据库持久化会话，支持撤销和密码修改后自动失效
+    同时保留内存缓存以提高性能
+    """
     if not credentials:
         return None
 
     token = credentials.credentials
-    if token not in SESSION_TOKENS:
-        return None
 
-    token_data = SESSION_TOKENS[token]
+    # 首先检查内存缓存（性能优化）
+    if token in SESSION_TOKENS:
+        token_data = SESSION_TOKENS[token]
+        # 检查token是否过期
+        if time.time() - token_data['timestamp'] > TOKEN_EXPIRE_TIME:
+            del SESSION_TOKENS[token]
+            # 同时从数据库撤销
+            try:
+                from db_manager import db_manager
+                db_manager.revoke_session(token)
+            except:
+                pass
+            return None
+        return token_data
 
-    # 检查token是否过期
-    if time.time() - token_data['timestamp'] > TOKEN_EXPIRE_TIME:
-        del SESSION_TOKENS[token]
-        return None
+    # 如果内存中没有，检查数据库（支持服务器重启后的会话恢复）
+    try:
+        from db_manager import db_manager
+        session = db_manager.get_session(token)
+        if session:
+            # 恢复到内存缓存
+            token_data = {
+                'user_id': session['user_id'],
+                'username': session['username'],
+                'is_admin': session['is_admin'],
+                'timestamp': time.time()  # 使用当前时间
+            }
+            SESSION_TOKENS[token] = token_data
+            return token_data
+    except Exception as e:
+        logger.error(f"从数据库验证会话失败: {e}")
 
-    return token_data
+    return None
 
 
 def verify_admin_token(credentials: Optional[HTTPAuthorizationCredentials] = Depends(security)) -> Dict[str, Any]:
@@ -419,44 +449,27 @@ async def health_check():
 
 
 # ==================== 版本检查和更新日志接口 ====================
-import httpx
+# 安全修复：移除外部服务器调用，避免数据外泄和隐私风险
 
 @app.get('/api/version/check')
 async def check_version():
-    """检查最新版本（代理外部接口）"""
-    try:
-        async with httpx.AsyncClient(timeout=20.0) as client:
-            response = await client.get('https://xianyu.zhinianblog.cn/index.php?action=getVersion')
-            if response.status_code == 200:
-                try:
-                    return response.json()
-                except Exception:
-                    # 如果不是有效JSON，返回HTML内容
-                    return {"html": response.text}
-            else:
-                return {"error": True, "message": f"远程服务返回状态码: {response.status_code}"}
-    except Exception as e:
-        logger.error(f"检查版本失败: {e}")
-        return {"error": True, "message": f"检查版本失败: {str(e)}"}
+    """检查最新版本 - 已禁用外部服务器调用"""
+    # 安全修复：不再调用外部服务器，返回本地版本信息
+    return {
+        "version": "local",
+        "message": "版本检查已禁用外部服务器调用，请访问项目仓库查看最新版本",
+        "disabled": True
+    }
 
 
 @app.get('/api/version/changelog')
 async def get_changelog():
-    """获取更新日志（代理外部接口）"""
-    try:
-        async with httpx.AsyncClient(timeout=20.0) as client:
-            response = await client.get('https://xianyu.zhinianblog.cn/index.php?action=getUpdateInfo')
-            if response.status_code == 200:
-                try:
-                    return response.json()
-                except Exception:
-                    # 如果不是有效JSON，返回HTML内容
-                    return {"html": response.text}
-            else:
-                return {"error": True, "message": f"远程服务返回状态码: {response.status_code}"}
-    except Exception as e:
-        logger.error(f"获取更新日志失败: {e}")
-        return {"error": True, "message": f"获取更新日志失败: {str(e)}"}
+    """获取更新日志 - 已禁用外部服务器调用"""
+    # 安全修复：不再调用外部服务器
+    return {
+        "message": "更新日志已禁用外部服务器调用，请访问项目仓库查看更新日志",
+        "disabled": True
+    }
 
 
 # 服务 React 前端 SPA - 所有前端路由都返回 index.html
@@ -542,14 +555,32 @@ async def login(request: LoginRequest):
         if db_manager.verify_user_password(request.username, request.password):
             user = db_manager.get_user_by_username(request.username)
             if user:
+                # 检查是否需要强制修改密码
+                password_must_change = user.get('password_must_change', False)
+
                 # 生成token
                 token = generate_token()
+                is_admin = user.get('is_admin', False) or user['username'] == ADMIN_USERNAME
+
+                # 保存到内存缓存
                 SESSION_TOKENS[token] = {
                     'user_id': user['id'],
                     'username': user['username'],
-                    'is_admin': user.get('is_admin', False) or user['username'] == ADMIN_USERNAME,
+                    'is_admin': is_admin,
                     'timestamp': time.time()
                 }
+
+                # 安全修复：同时保存到数据库（支持持久化和撤销）
+                try:
+                    db_manager.create_session(
+                        token=token,
+                        user_id=user['id'],
+                        username=user['username'],
+                        is_admin=is_admin,
+                        expire_seconds=TOKEN_EXPIRE_TIME
+                    )
+                except Exception as e:
+                    logger.warning(f"保存会话到数据库失败: {e}")
 
                 # 区分管理员和普通用户的日志
                 if user['username'] == ADMIN_USERNAME:
@@ -557,13 +588,17 @@ async def login(request: LoginRequest):
                 else:
                     logger.info(f"【{user['username']}#{user['id']}】登录成功")
 
+                if password_must_change:
+                    logger.warning(f"【{user['username']}】需要修改密码")
+
                 return LoginResponse(
                     success=True,
                     token=token,
-                    message="登录成功",
+                    message="登录成功" if not password_must_change else "登录成功，请立即修改密码",
                     user_id=user['id'],
                     username=user['username'],
-                    is_admin=(user['username'] == ADMIN_USERNAME)
+                    is_admin=(user['username'] == ADMIN_USERNAME),
+                    password_must_change=password_must_change
                 )
 
         logger.warning(f"【{request.username}】登录失败：用户名或密码错误")
@@ -578,24 +613,46 @@ async def login(request: LoginRequest):
 
         user = db_manager.get_user_by_email(request.email)
         if user and db_manager.verify_user_password(user['username'], request.password):
+            # 检查是否需要强制修改密码
+            password_must_change = user.get('password_must_change', False)
+
             # 生成token
             token = generate_token()
+            is_admin = user.get('is_admin', False) or user['username'] == ADMIN_USERNAME
+
+            # 保存到内存缓存
             SESSION_TOKENS[token] = {
                 'user_id': user['id'],
                 'username': user['username'],
-                'is_admin': user.get('is_admin', False) or user['username'] == ADMIN_USERNAME,
+                'is_admin': is_admin,
                 'timestamp': time.time()
             }
 
+            # 安全修复：同时保存到数据库（支持持久化和撤销）
+            try:
+                db_manager.create_session(
+                    token=token,
+                    user_id=user['id'],
+                    username=user['username'],
+                    is_admin=is_admin,
+                    expire_seconds=TOKEN_EXPIRE_TIME
+                )
+            except Exception as e:
+                logger.warning(f"保存会话到数据库失败: {e}")
+
             logger.info(f"【{user['username']}#{user['id']}】邮箱登录成功")
+
+            if password_must_change:
+                logger.warning(f"【{user['username']}】需要修改密码")
 
             return LoginResponse(
                 success=True,
                 token=token,
-                message="登录成功",
+                message="登录成功" if not password_must_change else "登录成功，请立即修改密码",
                 user_id=user['id'],
                 username=user['username'],
-                is_admin=(user['username'] == ADMIN_USERNAME)
+                is_admin=(user['username'] == ADMIN_USERNAME),
+                password_must_change=password_must_change
             )
 
         logger.warning(f"【{request.email}】邮箱登录失败：邮箱或密码错误")
@@ -687,8 +744,21 @@ async def change_admin_password(request: ChangePasswordRequest, admin_user: Dict
         success = db_manager.update_user_password('admin', request.new_password)
 
         if success:
+            # 安全修复：撤销该用户的所有其他会话（强制重新登录）
+            try:
+                user = db_manager.get_user_by_username('admin')
+                if user:
+                    revoked_count = db_manager.revoke_user_sessions(user['id'])
+                    logger.info(f"【admin】密码修改后撤销了 {revoked_count} 个会话")
+                    # 清理内存中该用户的会话
+                    tokens_to_remove = [t for t, data in SESSION_TOKENS.items() if data.get('username') == 'admin']
+                    for t in tokens_to_remove:
+                        del SESSION_TOKENS[t]
+            except Exception as e:
+                logger.warning(f"撤销会话失败: {e}")
+
             logger.info(f"【admin#{admin_user['user_id']}】管理员密码修改成功")
-            return {"success": True, "message": "密码修改成功"}
+            return {"success": True, "message": "密码修改成功，请重新登录"}
         else:
             return {"success": False, "message": "密码修改失败"}
 
@@ -705,7 +775,7 @@ async def change_user_password(request: ChangePasswordRequest, current_user: Dic
     try:
         username = current_user.get('username')
         user_id = current_user.get('user_id')
-        
+
         if not username:
             return {"success": False, "message": "无法获取用户信息"}
 
@@ -717,8 +787,22 @@ async def change_user_password(request: ChangePasswordRequest, current_user: Dic
         success = db_manager.update_user_password(username, request.new_password)
 
         if success:
+            # 清除强制修改密码标志
+            db_manager.clear_password_must_change(username)
+
+            # 安全修复：撤销该用户的所有其他会话（强制重新登录）
+            try:
+                revoked_count = db_manager.revoke_user_sessions(user_id)
+                logger.info(f"【{username}】密码修改后撤销了 {revoked_count} 个会话")
+                # 清理内存中该用户的会话
+                tokens_to_remove = [t for t, data in SESSION_TOKENS.items() if data.get('user_id') == user_id]
+                for t in tokens_to_remove:
+                    del SESSION_TOKENS[t]
+            except Exception as e:
+                logger.warning(f"撤销会话失败: {e}")
+
             logger.info(f"【{username}#{user_id}】用户密码修改成功")
-            return {"success": True, "message": "密码修改成功"}
+            return {"success": True, "message": "密码修改成功，请重新登录"}
         else:
             return {"success": False, "message": "密码修改失败"}
 
@@ -735,19 +819,23 @@ async def check_default_password(current_user: Dict[str, Any] = Depends(get_curr
     try:
         username = current_user.get('username')
         is_admin = current_user.get('is_admin', False)
-        
+
         logger.info(f"检查默认密码: username={username}, is_admin={is_admin}")
-        
+
         # 只检查admin用户
         if not is_admin or username != 'admin':
             logger.info(f"非admin用户，跳过检查")
             return {"using_default": False}
 
-        # 检查是否使用默认密码
-        using_default = db_manager.verify_user_password('admin', DEFAULT_ADMIN_PASSWORD)
-        logger.info(f"默认密码检查结果: {using_default}, DEFAULT_ADMIN_PASSWORD={DEFAULT_ADMIN_PASSWORD}")
-        
-        return {"using_default": using_default}
+        # 安全修复：使用 password_must_change 标志检查是否需要修改密码
+        # 不再使用硬编码的默认密码进行验证
+        user = db_manager.get_user_by_username('admin')
+        if user:
+            using_default = user.get('password_must_change', False)
+            logger.info(f"默认密码检查结果: password_must_change={using_default}")
+            return {"using_default": using_default}
+
+        return {"using_default": False}
 
     except Exception as e:
         logger.error(f"检查默认密码异常: {e}")
@@ -1130,9 +1218,8 @@ async def register(request: RegisterRequest):
 
 # ------------------------- 发送消息接口 -------------------------
 
-# 固定的API秘钥（生产环境中应该从配置文件或环境变量读取）
-# 注意：现在从系统设置中读取QQ回复消息秘钥
-API_SECRET_KEY = "xianyu_api_secret_2024"  # 保留作为后备
+# API秘钥从环境变量读取，如果未设置则在首次使用时从数据库读取或生成随机值
+# 注意：现在从系统设置中读取QQ回复消息秘钥，不再使用硬编码值
 
 class SendMessageRequest(BaseModel):
     api_key: str
@@ -1147,6 +1234,11 @@ class SendMessageResponse(BaseModel):
     message: str
 
 
+def _generate_secure_api_key() -> str:
+    """生成安全的随机API密钥"""
+    return secrets.token_urlsafe(32)
+
+
 def verify_api_key(api_key: str) -> bool:
     """验证API秘钥"""
     try:
@@ -1154,15 +1246,18 @@ def verify_api_key(api_key: str) -> bool:
         from db_manager import db_manager
         qq_secret_key = db_manager.get_system_setting('qq_reply_secret_key')
 
-        # 如果系统设置中没有配置，使用默认值
-        if not qq_secret_key:
-            qq_secret_key = API_SECRET_KEY
+        # 如果系统设置中没有配置或仍是默认不安全值，生成新的安全密钥
+        if not qq_secret_key or qq_secret_key == 'xianyu_qq_reply_2024':
+            new_key = _generate_secure_api_key()
+            db_manager.set_system_setting('qq_reply_secret_key', new_key, 'QQ回复消息API秘钥（已自动生成安全密钥）')
+            logger.warning(f"已自动生成新的API安全密钥，请在系统设置中查看")
+            qq_secret_key = new_key
 
-        return api_key == qq_secret_key
+        return secrets.compare_digest(api_key, qq_secret_key)
     except Exception as e:
         logger.error(f"验证API秘钥时发生异常: {e}")
-        # 异常情况下使用默认秘钥验证
-        return api_key == API_SECRET_KEY
+        # 异常情况下拒绝验证，不使用任何默认值
+        return False
 
 
 @app.post('/send-message', response_model=SendMessageResponse)
@@ -1191,17 +1286,10 @@ async def send_message_api(request: SendMessageRequest):
                 message="API秘钥不能为空"
             )
 
-        # 特殊测试秘钥处理
-        if cleaned_api_key == "zhinina_test_key":
-            logger.info("使用测试秘钥，直接返回成功")
-            return SendMessageResponse(
-                success=True,
-                message="接口验证成功"
-            )
-
         # 验证API秘钥
         if not verify_api_key(cleaned_api_key):
-            logger.warning(f"API秘钥验证失败: {cleaned_api_key}")
+            # 安全修复：不记录实际的API密钥值，只记录验证失败
+            logger.warning("API秘钥验证失败（密钥已隐藏）")
             return SendMessageResponse(
                 success=False,
                 message="API秘钥验证失败"
@@ -4198,6 +4286,11 @@ def export_backup(current_user: Dict[str, Any] = Depends(get_current_user)):
         user_id = current_user['user_id']
         username = current_user['username']
 
+        # 安全检查：如果用户需要修改密码，禁止导出
+        user = db_manager.get_user_by_username(username)
+        if user and user.get('password_must_change'):
+            raise HTTPException(status_code=403, detail="请先修改默认密码后再导出数据")
+
         # 导出当前用户的数据
         backup_data = db_manager.export_backup(user_id)
 
@@ -5501,16 +5594,29 @@ def get_item_reply(cookie_id: str, item_id: str, current_user: Dict[str, Any] = 
 
 @app.get('/admin/backup/download')
 def download_database_backup(admin_user: Dict[str, Any] = Depends(require_admin)):
-    """下载数据库备份文件（管理员专用）"""
+    """下载数据库备份文件（管理员专用）
+
+    安全措施：
+    - 仅限管理员访问
+    - 记录详细审计日志
+    - 检查用户是否需要强制修改密码
+    """
     import os
     from fastapi.responses import FileResponse
     from datetime import datetime
 
     try:
-        log_with_user('info', "请求下载数据库备份", admin_user)
+        # 安全检查：如果用户需要修改密码，禁止下载
+        from db_manager import db_manager
+        user = db_manager.get_user_by_username(admin_user.get('username'))
+        if user and user.get('password_must_change'):
+            log_with_user('warning', "尝试下载备份但需要先修改密码", admin_user)
+            raise HTTPException(status_code=403, detail="请先修改默认密码后再下载备份")
+
+        # 记录安全审计日志
+        log_with_user('warning', f"⚠️ 安全审计：管理员请求下载数据库备份", admin_user)
 
         # 使用db_manager的实际数据库路径
-        from db_manager import db_manager
         db_file_path = db_manager.db_path
 
         # 检查数据库文件是否存在
@@ -5522,7 +5628,7 @@ def download_database_backup(admin_user: Dict[str, Any] = Depends(require_admin)
         timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
         download_filename = f"xianyu_backup_{timestamp}.db"
 
-        log_with_user('info', f"开始下载数据库备份: {download_filename}", admin_user)
+        log_with_user('warning', f"⚠️ 安全审计：开始下载数据库备份: {download_filename}", admin_user)
 
         return FileResponse(
             path=db_file_path,

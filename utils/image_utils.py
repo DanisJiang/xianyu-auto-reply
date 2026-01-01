@@ -176,20 +176,39 @@ class ImageManager:
     
     def delete_image(self, image_path: str) -> bool:
         """删除图片文件
-        
+
         Args:
             image_path: 图片相对路径
-            
+
         Returns:
             删除成功返回True，失败返回False
         """
         try:
+            # 安全修复：防止路径遍历攻击
+            if not image_path:
+                logger.warning("图片路径为空")
+                return False
+
+            # 检查路径中是否包含危险字符
+            if '..' in image_path or image_path.startswith('/') or image_path.startswith('\\'):
+                logger.warning(f"检测到可疑路径，拒绝删除: {image_path}")
+                return False
+
             # 构建完整路径
             if not image_path.startswith(self.upload_dir):
                 full_path = os.path.join(os.getcwd(), image_path)
             else:
                 full_path = image_path
-            
+
+            # 安全修复：规范化路径并验证是否在允许的目录内
+            full_path = os.path.normpath(os.path.abspath(full_path))
+            allowed_dir = os.path.normpath(os.path.abspath(self.upload_dir))
+
+            # 确保文件在允许的上传目录内
+            if not full_path.startswith(allowed_dir + os.sep) and full_path != allowed_dir:
+                logger.warning(f"路径遍历攻击尝试被阻止: {image_path} -> {full_path}")
+                return False
+
             if os.path.exists(full_path):
                 os.remove(full_path)
                 logger.info(f"图片删除成功: {image_path}")
@@ -197,30 +216,46 @@ class ImageManager:
             else:
                 logger.warning(f"图片文件不存在: {image_path}")
                 return False
-                
+
         except Exception as e:
             logger.error(f"删除图片失败: {e}")
             return False
     
     def get_image_info(self, image_path: str) -> Optional[dict]:
         """获取图片信息
-        
+
         Args:
             image_path: 图片相对路径
-            
+
         Returns:
             图片信息字典或None
         """
         try:
+            # 安全修复：防止路径遍历攻击
+            if not image_path:
+                return None
+
+            if '..' in image_path or image_path.startswith('/') or image_path.startswith('\\'):
+                logger.warning(f"检测到可疑路径，拒绝访问: {image_path}")
+                return None
+
             # 构建完整路径
             if not image_path.startswith(self.upload_dir):
                 full_path = os.path.join(os.getcwd(), image_path)
             else:
                 full_path = image_path
-            
+
+            # 安全修复：规范化路径并验证是否在允许的目录内
+            full_path = os.path.normpath(os.path.abspath(full_path))
+            allowed_dir = os.path.normpath(os.path.abspath(self.upload_dir))
+
+            if not full_path.startswith(allowed_dir + os.sep) and full_path != allowed_dir:
+                logger.warning(f"路径遍历攻击尝试被阻止: {image_path}")
+                return None
+
             if not os.path.exists(full_path):
                 return None
-            
+
             with Image.open(full_path) as img:
                 return {
                     'width': img.width,
@@ -229,7 +264,7 @@ class ImageManager:
                     'mode': img.mode,
                     'size': os.path.getsize(full_path)
                 }
-                
+
         except Exception as e:
             logger.error(f"获取图片信息失败: {e}")
             return None
