@@ -37,7 +37,7 @@ export function Accounts() {
   // 扫码登录状态
   const [qrCodeUrl, setQrCodeUrl] = useState('')
   const [, setQrSessionId] = useState('')
-  const [qrStatus, setQrStatus] = useState<'loading' | 'ready' | 'scanned' | 'success' | 'expired' | 'error'>('loading')
+  const [qrStatus, setQrStatus] = useState<'loading' | 'ready' | 'scanned' | 'success' | 'expired' | 'error' | 'verification'>('loading')
   const qrCheckIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null)
 
   // 密码登录状态
@@ -238,7 +238,12 @@ export function Accounts() {
             closeModal()
             break
           case 'verification_required':
-            addToast({ type: 'warning', message: '需要手机验证，请在手机上完成' })
+            // 只在第一次收到时弹 toast，避免重复弹出
+            if (qrStatus !== 'verification') {
+              setQrStatus('verification')
+              addToast({ type: 'warning', message: '需要手机验证，请在手机闲鱼App上完成验证' })
+            }
+            // 继续轮询，等待用户完成验证
             break
         }
       } catch {
@@ -785,6 +790,18 @@ export function Accounts() {
                     <Power className="w-7 h-7" />
                   </div>
                   <p className="font-medium">登录成功！</p>
+                </div>
+              )}
+              {qrStatus === 'verification' && (
+                <div className="flex flex-col items-center gap-3 text-orange-600">
+                  <div className="w-14 h-14 rounded-full bg-orange-100 flex items-center justify-center">
+                    <Loader2 className="w-7 h-7 animate-spin" />
+                  </div>
+                  <p className="font-medium">需要手机验证</p>
+                  <p className="text-xs text-slate-500 dark:text-slate-400 text-center">
+                    请在手机闲鱼App上完成安全验证<br />
+                    验证完成后将自动登录
+                  </p>
                 </div>
               )}
               {qrStatus === 'expired' && (
