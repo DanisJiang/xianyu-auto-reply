@@ -726,8 +726,15 @@ class DBManager:
             密码哈希值
         """
         if BCRYPT_AVAILABLE:
-            # 使用 bcrypt，rounds=12 提供良好的安全性和性能平衡
-            return bcrypt.using(rounds=12).hash(password)
+            try:
+                # bcrypt 限制密码最大 72 字节，确保不超过
+                password_bytes = password.encode('utf-8')[:72]
+                password_truncated = password_bytes.decode('utf-8', errors='ignore')
+                # 使用 bcrypt，rounds=12 提供良好的安全性和性能平衡
+                return bcrypt.using(rounds=12).hash(password_truncated)
+            except Exception as e:
+                logger.warning(f"bcrypt 哈希失败，回退到 SHA256: {e}")
+                return hashlib.sha256(password.encode()).hexdigest()
         else:
             # 回退方案：SHA256（不推荐，仅在 bcrypt 不可用时使用）
             logger.warning("使用 SHA256 哈希密码（不推荐，请安装 passlib[bcrypt]）")
