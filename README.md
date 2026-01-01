@@ -632,8 +632,8 @@ curl "http://notice.zhinianblog.cn/sendPrivateMsg?qq=test&msg=test"
 
 # 🐟 闲鱼自动回复系统
 
-[![GitHub](https://img.shields.io/badge/GitHub-zhinianboke%2Fxianyu--auto--reply-blue?logo=github)](https://github.com/zhinianboke/xianyu-auto-reply)
-[![Docker](https://img.shields.io/badge/Docker-一键部署-blue?logo=docker)](https://github.com/zhinianboke/xianyu-auto-reply#-快速开始)
+[![GitHub](https://img.shields.io/badge/GitHub-DanisJiang%2Fxianyu--auto--reply-blue?logo=github)](https://github.com/DanisJiang/xianyu-auto-reply)
+[![Docker](https://img.shields.io/badge/Docker-一键部署-blue?logo=docker)](https://github.com/DanisJiang/xianyu-auto-reply#-快速开始)
 [![Python](https://img.shields.io/badge/Python-3.11+-green?logo=python)](https://www.python.org/)
 [![License](https://img.shields.io/badge/License-仅供学习-red.svg)](#️-版权声明与使用条款)
 
@@ -932,7 +932,7 @@ docker run -d \
 #### 🌍 国际版（推荐海外用户）
 ```bash
 # 1. 克隆项目
-git clone https://github.com/zhinianboke/xianyu-auto-reply.git
+git clone https://github.com/DanisJiang/xianyu-auto-reply.git
 cd xianyu-auto-reply
 
 # 2. 使用完整版配置（包含Redis缓存等增强功能）
@@ -945,7 +945,7 @@ docker-compose up -d --build
 #### 🇨🇳 中国版（推荐国内用户）
 ```bash
 # 1. 克隆项目
-git clone https://github.com/zhinianboke/xianyu-auto-reply.git
+git clone https://github.com/DanisJiang/xianyu-auto-reply.git
 cd xianyu-auto-reply
 
 # 2. 使用中国镜像源配置（下载速度更快）
@@ -968,7 +968,7 @@ docker-compose -f docker-compose-cn.yml up -d --build
 
 ```bash
 # 1. 克隆项目
-git clone https://github.com/zhinianboke/xianyu-auto-reply.git
+git clone https://github.com/DanisJiang/xianyu-auto-reply.git
 cd xianyu-auto-reply
 
 # 2. 创建虚拟环境（推荐）
@@ -1496,7 +1496,7 @@ docker start xianyu-auto-reply
 欢迎为项目做出贡献！您可以通过以下方式参与：
 
 ### 📝 提交问题
-- 在 [GitHub Issues](https://github.com/zhinianboke/xianyu-auto-reply/issues) 中报告Bug
+- 在 [GitHub Issues](https://github.com/DanisJiang/xianyu-auto-reply/issues) 中报告Bug
 - 提出新功能建议和改进意见
 - 分享使用经验和最佳实践
 
@@ -1547,7 +1547,7 @@ docker-compose up -d
 
 ```bash
 # 克隆项目并从源码构建
-git clone https://github.com/zhinianboke/xianyu-auto-reply.git
+git clone https://github.com/DanisJiang/xianyu-auto-reply.git
 cd xianyu-auto-reply
 ./docker-deploy.sh
 ```
@@ -1606,7 +1606,7 @@ powershell -ExecutionPolicy Bypass -File docker-deploy.bat
 ### 👤 原作者信息
 
 - **项目作者**：zhinianboke
-- **项目地址**：https://github.com/zhinianboke/xianyu-auto-reply
+- **项目地址**：https://github.com/DanisJiang/xianyu-auto-reply
 - **联系方式**：通过GitHub Issues或项目交流群
 
 ### ⚠️ 免责声明
@@ -1620,7 +1620,7 @@ powershell -ExecutionPolicy Bypass -File docker-deploy.bat
 
 如发现本项目存在侵权内容，请通过以下方式联系：
 
-- **GitHub Issues**：https://github.com/zhinianboke/xianyu-auto-reply/issues
+- **GitHub Issues**：https://github.com/DanisJiang/xianyu-auto-reply/issues
 - **邮箱联系**：在项目交流群中获取联系方式
 
 我们将在收到通知后**立即处理**并删除相关内容。
@@ -1720,4 +1720,4 @@ python test_php_stats.py
 
 ## Star History
 
-[![Star History Chart](https://api.star-history.com/svg?repos=zhinianboke/xianyu-auto-reply&type=Date)](https://www.star-history.com/#zhinianboke/xianyu-auto-reply&Date)
+[![Star History Chart](https://api.star-history.com/svg?repos=DanisJiang/xianyu-auto-reply&type=Date)](https://www.star-history.com/#DanisJiang/xianyu-auto-reply&Date)

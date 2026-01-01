@@ -71,12 +71,12 @@ COPY --from=frontend-builder /frontend/dist ./static
 FROM base AS runtime
 
 # 设置标签信息
-LABEL maintainer="zhinianboke" \
+LABEL maintainer="DanisJiang" \
       version="2.1.0" \
       description="闲鱼自动回复系统 - 企业级多用户版本，支持自动发货和免拼发货" \
-      repository="https://github.com/zhinianboke/xianyu-auto-reply" \
+      repository="https://github.com/DanisJiang/xianyu-auto-reply" \
       license="仅供学习使用，禁止商业用途" \
-      author="zhinianboke" \
+      author="DanisJiang" \
       build-date="" \
       vcs-ref=""
 
