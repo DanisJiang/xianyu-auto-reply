@@ -872,99 +872,43 @@ xianyu-auto-reply/
 
 ## 🚀 快速开始
 
-**⚡ 最快部署方式（推荐）**：使用预构建镜像，无需下载源码，一条命令即可启动！
+### 方式一：Docker 部署（推荐）⭐
 
-### 方式一：Docker 一键部署（最简单）⭐
-
-**国内用户（阿里云镜像，推荐）**：
-```bash
-# 1. 创建数据目录
-mkdir -p xianyu-auto-reply
-
-# 2. 一键启动容器（支持AMD64/ARM64，自动选择架构）
-docker run -d \
-  -p 8080:8080 \
-  --restart always \
-  -v $PWD/xianyu-auto-reply/:/app/data/ \
-  --name xianyu-auto-reply \
-  registry.cn-shanghai.aliyuncs.com/zhinian-software/xianyu-auto-reply:latest
-
-# 3. 访问系统
-# http://localhost:8080
-```
-
-**国际用户（Docker Hub镜像）**：
-```bash
-# 使用Docker Hub国际镜像
-docker run -d \
-  -p 8080:8080 \
-  --restart always \
-  -v $PWD/xianyu-auto-reply/:/app/data/ \
-  --name xianyu-auto-reply \
-  zhinianblog/xianyu-auto-reply:latest
-```
-
-**Windows用户**：
-```powershell
-# 创建数据目录
-mkdir xianyu-auto-reply
-
-# 国内用户（阿里云）
-docker run -d -p 8080:8080 --restart always -v %cd%/xianyu-auto-reply/:/app/data/ --name xianyu-auto-reply registry.cn-shanghai.aliyuncs.com/zhinian-software/xianyu-auto-reply:latest
-
-# 国际用户（Docker Hub）
-docker run -d -p 8080:8080 --restart always -v %cd%/xianyu-auto-reply/:/app/data/ --name xianyu-auto-reply zhinianblog/xianyu-auto-reply:latest
-```
-
-**ARM64服务器** (Oracle Cloud, AWS Graviton等)：
-```bash
-# Docker会自动选择ARM64镜像，无需特殊配置
-docker run -d \
-  -p 8080:8080 \
-  --restart always \
-  -v $PWD/xianyu-auto-reply/:/app/data/ \
-  --name xianyu-auto-reply \
-  registry.cn-shanghai.aliyuncs.com/zhinian-software/xianyu-auto-reply:latest
-```
-
-### 方式二：从源码构建部署
-
-#### 🌍 国际版（推荐海外用户）
 ```bash
 # 1. 克隆项目
 git clone https://github.com/DanisJiang/xianyu-auto-reply.git
 cd xianyu-auto-reply
 
-# 2. 使用完整版配置（包含Redis缓存等增强功能）
-docker-compose up -d --build
+# 2. 构建并启动（使用中国镜像源，下载更快）
+docker-compose -f docker-compose-cn.yml up -d --build
 
-# 3. 访问系统
+# 3. 查看日志获取初始密码（重要！）
+docker logs xianyu-auto-reply 2>&1 | grep -A5 "首次运行"
+
+# 4. 访问系统
 # http://localhost:8080
+# 用户名: admin
+# 密码: 从上一步日志中获取
 ```
 
-#### 🇨🇳 中国版（推荐国内用户）
+#### 🌍 国际用户
 ```bash
 # 1. 克隆项目
 git clone https://github.com/DanisJiang/xianyu-auto-reply.git
 cd xianyu-auto-reply
 
-# 2. 使用中国镜像源配置（下载速度更快）
-docker-compose -f docker-compose-cn.yml up -d --build
-
-# 3. 访问系统
-# http://localhost:8080
-```
-
-**Windows用户**：
-```cmd
-# 国际版
+# 2. 构建并启动
 docker-compose up -d --build
 
-# 中国版（推荐）
-docker-compose -f docker-compose-cn.yml up -d --build
+# 3. 查看日志获取初始密码
+docker logs xianyu-auto-reply 2>&1 | grep -A5 "首次运行"
+
+# 4. 访问系统: http://localhost:8080
 ```
 
-### 方式三：本地开发部署
+> ⚠️ **重要提示**：系统首次启动会自动生成随机管理员密码，请从日志中获取！登录后请立即修改密码。
+
+### 方式二：本地开发部署
 
 ```bash
 # 1. 克隆项目
@@ -1008,11 +952,7 @@ python Start.py
 - ✅ **linux/amd64** - Intel/AMD处理器（传统服务器、PC、虚拟机）
 - ✅ **linux/arm64** - ARM64处理器（ARM服务器、树莓派4+、Apple M系列）
 
-**镜像仓库**:
-- 🇨🇳 **阿里云**: `registry.cn-shanghai.aliyuncs.com/zhinian-software/xianyu-auto-reply:latest`
-- 🌍 **Docker Hub**: `zhinianblog/xianyu-auto-reply:latest`
-
-**自动构建**: GitHub Actions自动构建并推送多架构镜像到两个镜像仓库，Docker会自动选择匹配的架构
+**部署方式**: 从源码本地构建，确保使用最新的安全修复版本
 
 **适用的ARM云服务器**:
 - Oracle Cloud - Ampere A1 (永久免费4核24GB)
@@ -1036,8 +976,8 @@ DB_PATH=data/xianyu_data.db            # 数据库文件路径（默认在data�
 
 # 管理员配置
 ADMIN_USERNAME=admin                   # 管理员用户名
-ADMIN_PASSWORD=admin123                # 管理员密码（请修改）
-JWT_SECRET_KEY=your-secret-key         # JWT密钥（请修改）
+# 注意：密码由系统首次启动时自动生成，请从日志获取
+JWT_SECRET_KEY=your-secret-key         # JWT密钥（建议配置强密钥）
 
 # 功能开关
 AUTO_REPLY_ENABLED=true                # 启用自动回复
@@ -1392,55 +1332,19 @@ docker logs --tail 100 xianyu-auto-reply
 
 **更新到最新版本**：
 
-国内用户（阿里云镜像）：
 ```bash
-# 1. 停止并删除旧容器
-docker stop xianyu-auto-reply
-docker rm xianyu-auto-reply
+# 1. 进入项目目录
+cd xianyu-auto-reply
 
-# 2. 删除旧镜像（释放磁盘空间）
-docker rmi $(docker images --filter "reference=*xianyu-auto-reply*" -q)
+# 2. 拉取最新代码
+git pull origin main
 
-# 3. 拉取最新镜像
-docker pull registry.cn-shanghai.aliyuncs.com/zhinian-software/xianyu-auto-reply:latest
+# 3. 重新构建并启动
+docker-compose -f docker-compose-cn.yml up -d --build
 
-# 4. 启动新容器
-docker run -d -p 8080:8080 --restart always \
-  -v $PWD/xianyu-auto-reply/:/app/data/ \
-  --name xianyu-auto-reply \
-  registry.cn-shanghai.aliyuncs.com/zhinian-software/xianyu-auto-reply:latest
+# 4. 查看日志确认启动正常
+docker logs -f xianyu-auto-reply
 ```
-
-国际用户（Docker Hub）：
-```bash
-# 1. 停止并删除旧容器
-docker stop xianyu-auto-reply
-docker rm xianyu-auto-reply
-
-# 2. 删除旧镜像（释放磁盘空间）
-docker rmi $(docker images --filter "reference=*xianyu-auto-reply*" -q)
-
-# 3. 拉取最新镜像
-docker pull zhinianblog/xianyu-auto-reply:latest
-
-# 4. 启动新容器
-docker run -d -p 8080:8080 --restart always \
-  -v $PWD/xianyu-auto-reply/:/app/data/ \
-  --name xianyu-auto-reply \
-  zhinianblog/xianyu-auto-reply:latest
-```
-
-**验证多架构镜像**：
-```bash
-# 查看镜像支持的架构
-docker manifest inspect registry.cn-shanghai.aliyuncs.com/zhinian-software/xianyu-auto-reply:latest | grep architecture
-
-# 或Docker Hub镜像
-docker manifest inspect zhinianblog/xianyu-auto-reply:latest | grep architecture
-
-# 应该显示: "architecture": "amd64" 和 "architecture": "arm64"
-```
-
 
 **容器重启**：
 ```bash
