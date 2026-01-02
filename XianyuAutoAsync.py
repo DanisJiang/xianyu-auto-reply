@@ -5040,7 +5040,6 @@ class XianyuLive:
                     result = result.replace(placeholder, str(param_value))
 
             # 再处理表达式，如 {order_quantity * 10}
-            import re
             expr_pattern = re.compile(r'\{(\w+)\s*([+\-*/])\s*(\d+(?:\.\d+)?)\}')
 
             def eval_expr(match):
@@ -5075,6 +5074,17 @@ class XianyuLive:
                 return str(result_val)
 
             result = expr_pattern.sub(eval_expr, result)
+
+            # 如果结果是纯数字字符串，转换为数字类型（用于 JSON 序列化）
+            if result != obj:  # 只有发生替换时才尝试转换
+                try:
+                    if '.' in result:
+                        return float(result)
+                    else:
+                        return int(result)
+                except ValueError:
+                    pass  # 不是纯数字，保持字符串
+
             return result
         else:
             return obj
