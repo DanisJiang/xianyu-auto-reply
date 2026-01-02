@@ -4971,9 +4971,16 @@ class XianyuLive:
 
             # 从订单信息中提取参数
             if order_info:
+                quantity = order_info.get('quantity', 1)
+                try:
+                    quantity = int(quantity) if quantity else 1
+                except (ValueError, TypeError):
+                    quantity = 1
+
                 param_mapping.update({
                     'order_amount': str(order_info.get('amount', '')),
-                    'order_quantity': str(order_info.get('quantity', '')),
+                    'order_quantity': str(quantity),
+                    'order_value': str(quantity * 10),  # 数量 × 10，用于兑换码金额
                 })
 
             # 从商品信息中提取参数
