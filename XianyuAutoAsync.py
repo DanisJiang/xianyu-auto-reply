@@ -4980,7 +4980,6 @@ class XianyuLive:
                 param_mapping.update({
                     'order_amount': str(order_info.get('amount', '')),
                     'order_quantity': str(quantity),
-                    'order_value': str(quantity * 10),  # 数量 × 10，用于兑换码金额
                 })
 
             # 从商品信息中提取参数
@@ -5022,7 +5021,7 @@ class XianyuLive:
             return params
 
     def _recursive_replace_params(self, obj, param_mapping):
-        """递归替换参数中的占位符"""
+        """递归替换参数中的占位符，支持简单表达式如 {order_quantity * 10}"""
         if isinstance(obj, dict):
             result = {}
             for key, value in obj.items():
@@ -5033,10 +5032,49 @@ class XianyuLive:
         elif isinstance(obj, str):
             # 替换字符串中的占位符
             result = obj
+
+            # 先处理简单变量替换
             for param_key, param_value in param_mapping.items():
                 placeholder = f"{{{param_key}}}"
                 if placeholder in result:
                     result = result.replace(placeholder, str(param_value))
+
+            # 再处理表达式，如 {order_quantity * 10}
+            import re
+            expr_pattern = re.compile(r'\{(\w+)\s*([+\-*/])\s*(\d+(?:\.\d+)?)\}')
+
+            def eval_expr(match):
+                var_name = match.group(1)
+                operator = match.group(2)
+                number = float(match.group(3))
+
+                if var_name not in param_mapping:
+                    return match.group(0)  # 变量不存在，保持原样
+
+                try:
+                    var_value = float(param_mapping[var_name])
+                except (ValueError, TypeError):
+                    return match.group(0)  # 变量不是数字，保持原样
+
+                if operator == '+':
+                    result_val = var_value + number
+                elif operator == '-':
+                    result_val = var_value - number
+                elif operator == '*':
+                    result_val = var_value * number
+                elif operator == '/':
+                    if number == 0:
+                        return match.group(0)  # 除以0，保持原样
+                    result_val = var_value / number
+                else:
+                    return match.group(0)
+
+                # 如果结果是整数，返回整数格式
+                if result_val == int(result_val):
+                    return str(int(result_val))
+                return str(result_val)
+
+            result = expr_pattern.sub(eval_expr, result)
             return result
         else:
             return obj
