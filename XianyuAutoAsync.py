@@ -4812,6 +4812,49 @@ class XianyuLive:
             # 出错时返回原始发货内容
             return delivery_content
 
+    def _extract_api_content(self, result):
+        """
+        从API响应中提取实际内容
+        支持多种常见格式：
+        - {"data": [{"code": "xxx"}]} - sub2api格式
+        - {"data": "content"} - 直接字符串
+        - {"content": "xxx"} - 通用格式
+        - {"card": "xxx"} - 卡券格式
+        """
+        if not isinstance(result, dict):
+            return str(result)
+
+        # 尝试从常见字段获取数据
+        data = result.get('data') or result.get('content') or result.get('card')
+
+        if data is None:
+            return str(result)
+
+        # 如果data是字符串，直接返回
+        if isinstance(data, str):
+            return data
+
+        # 如果data是列表（如sub2api返回的格式）
+        if isinstance(data, list) and len(data) > 0:
+            first_item = data[0]
+            if isinstance(first_item, dict):
+                # 尝试从第一个元素中提取常见的内容字段
+                content = first_item.get('code') or first_item.get('content') or first_item.get('card') or first_item.get('value')
+                if content:
+                    return str(content)
+                # 如果没有找到常见字段，返回整个对象的字符串
+                return str(first_item)
+            else:
+                return str(first_item)
+
+        # 如果data是字典，尝试提取内容
+        if isinstance(data, dict):
+            content = data.get('code') or data.get('content') or data.get('card') or data.get('value')
+            if content:
+                return str(content)
+
+        return str(data)
+
     async def _get_api_card_content(self, rule, order_id=None, item_id=None, buyer_id=None, spec_name=None, spec_value=None, retry_count=0):
         """调用API获取卡券内容，支持动态参数替换和重试机制"""
         max_retries = 4
@@ -4878,15 +4921,11 @@ class XianyuLive:
                 # 尝试解析JSON响应，如果失败则使用原始文本
                 try:
                     result = json.loads(response_text)
-                    # 如果返回的是对象，尝试提取常见的内容字段
-                    if isinstance(result, dict):
-                        content = result.get('data') or result.get('content') or result.get('card') or str(result)
-                    else:
-                        content = str(result)
+                    content = self._extract_api_content(result)
                 except:
                     content = response_text
 
-                logger.info(f"API调用成功，返回内容长度: {len(content)}")
+                logger.info(f"API调用成功，返回内容: {content[:100] if len(str(content)) > 100 else content}")
                 return content
             else:
                 logger.warning(f"API调用失败: {status_code} - {response_text[:200]}...")
