@@ -1739,7 +1739,7 @@ class XianyuLive:
                     # user_id=f"{self.cookie_id}_{int(time.time() * 1000)}",  # 使用唯一ID避免冲突
                     user_id=f"{self.cookie_id}",  # 使用唯一ID避免冲突
                     enable_learning=True,  # 启用学习功能
-                    headless=False  # 使用无头模式
+                    headless=True  # 无头模式，适用于 Docker 容器
                 )
 
                 # 在线程池中执行滑块验证
