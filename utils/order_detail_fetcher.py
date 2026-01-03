@@ -41,6 +41,7 @@ class OrderDetailFetcher:
     _order_locks = defaultdict(lambda: asyncio.Lock())
 
     def __init__(self, cookie_string: str = None, headless: bool = True):
+        self.playwright = None  # 添加 playwright 实例引用
         self.browser: Optional[Browser] = None
         self.context: Optional[BrowserContext] = None
         self.page: Optional[Page] = None
@@ -75,7 +76,7 @@ class OrderDetailFetcher:
 
             logger.info(f"开始初始化浏览器，headless模式: {headless}")
 
-            playwright = await async_playwright().start()
+            self.playwright = await async_playwright().start()
 
             # 启动浏览器（Docker环境优化）
             browser_args = [
@@ -137,7 +138,7 @@ class OrderDetailFetcher:
                 ])
 
             logger.info(f"启动浏览器，参数: {browser_args}")
-            self.browser = await playwright.chromium.launch(
+            self.browser = await self.playwright.chromium.launch(
                 headless=headless,
                 args=browser_args
             )
@@ -625,6 +626,13 @@ class OrderDetailFetcher:
                     pass
                 self.browser = None
 
+            if self.playwright:
+                try:
+                    await self.playwright.stop()
+                except:
+                    pass
+                self.playwright = None
+
         except Exception as e:
             logger.debug(f"强制关闭浏览器过程中的异常（可忽略）: {e}")
 
@@ -637,7 +645,9 @@ class OrderDetailFetcher:
                 await self.context.close()
             if self.browser:
                 await self.browser.close()
-            logger.info("浏览器已关闭")
+            if self.playwright:
+                await self.playwright.stop()
+            logger.info("浏览器和Playwright已关闭")
         except Exception as e:
             logger.error(f"关闭浏览器失败: {e}")
             # 如果正常关闭失败，尝试强制关闭
