@@ -7604,6 +7604,53 @@ class XianyuLive:
             except:
                 pass
 
+            # 【重要】检查是否为更新消息格式（付款后的卡片状态更新）
+            # 更新消息格式: {'1': '消息ID.PNM', '2': 'chat_id@goofish', '4': {...'reminderContent': '[已付款，待发货]'...}}
+            try:
+                message_1 = message.get("1")
+                message_4 = message.get("4")
+
+                # 判断是否为更新消息格式
+                if (isinstance(message_1, str) and
+                    message_1.endswith('.PNM') and
+                    isinstance(message_4, dict)):
+
+                    # 验证是否为系统发送的更新消息（必须包含 bizTag 或 _CONTENT_MAP_UPDATE_PRE_ 开头的key）
+                    has_biz_tag = 'bizTag' in message_4
+                    has_update_key = any(k.startswith('_CONTENT_MAP_UPDATE_PRE_') for k in message_4.keys())
+
+                    if has_biz_tag or has_update_key:
+                        # 提取 reminderContent
+                        reminder_content = message_4.get('reminderContent', '')
+
+                        # 检查是否为付款触发消息
+                        if self._is_auto_delivery_trigger(reminder_content):
+                            msg_time = time.strftime("%Y-%m-%d %H:%M:%S", time.localtime())
+                            logger.info(f'[{msg_time}] 【{self.cookie_id}】检测到更新消息格式的付款通知: {reminder_content}')
+
+                            # 提取必要信息
+                            chat_id_raw = message.get("2", "")
+                            chat_id = chat_id_raw.split('@')[0] if '@' in str(chat_id_raw) else str(chat_id_raw)
+                            send_user_id = message_4.get('senderUserId', 'unknown')
+                            send_user_name = message_4.get('reminderTitle', '未知用户')
+
+                            # 提取商品ID
+                            update_item_id = None
+                            reminder_url = message_4.get('reminderUrl', '')
+                            if 'itemId=' in reminder_url:
+                                update_item_id = reminder_url.split('itemId=')[1].split('&')[0]
+                            if not update_item_id:
+                                update_item_id = item_id  # 使用之前提取的item_id
+
+                            logger.info(f'[{msg_time}] 【{self.cookie_id}】更新消息自动发货: chat_id={chat_id}, item_id={update_item_id}, user_id={send_user_id}')
+
+                            # 调用自动发货处理
+                            await self._handle_auto_delivery(websocket, message, send_user_name, send_user_id,
+                                                           update_item_id, chat_id, msg_time)
+                            return
+            except Exception as update_msg_err:
+                logger.debug(f"检查更新消息格式时出错: {self._safe_str(update_msg_err)}")
+
             # 判断是否为聊天消息
             if not self.is_chat_message(message):
                 logger.warning("非聊天消息")
