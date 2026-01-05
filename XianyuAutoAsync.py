@@ -7223,20 +7223,15 @@ class XianyuLive:
                 logger.info(f"[{msg_time}] 【{self.cookie_id}】【系统】自动回复已禁用")
                 return
 
-            # 检查该chat_id是否处于暂停状态
-            if pause_manager.is_chat_paused(chat_id):
-                remaining_time = pause_manager.get_remaining_pause_time(chat_id)
-                remaining_minutes = remaining_time // 60
-                remaining_seconds = remaining_time % 60
-                logger.info(f"[{msg_time}] 【{self.cookie_id}】【系统】chat_id {chat_id} 自动回复已暂停，剩余时间: {remaining_minutes}分{remaining_seconds}秒")
-                return
-
             # 构造用户URL
             user_url = f'https://www.goofish.com/personal?userId={send_user_id}'
 
+            # 预先检查暂停状态（用于控制 API/AI/默认回复，关键词回复不受影响）
+            is_paused = pause_manager.is_chat_paused(chat_id)
+
             reply = None
-            # 判断是否启用API回复
-            if AUTO_REPLY.get('api', {}).get('enabled', False):
+            # 判断是否启用API回复（API回复受暂停影响）
+            if AUTO_REPLY.get('api', {}).get('enabled', False) and not is_paused:
                 reply = await self.get_api_reply(
                     msg_time, user_url, send_user_id, send_user_name,
                     item_id, send_message, chat_id
@@ -7249,7 +7244,7 @@ class XianyuLive:
 
             # 如果API回复失败或未启用API，按新的优先级顺序处理
             if not reply:
-                # 1. 首先尝试关键词匹配（传入商品ID）
+                # 1. 首先尝试关键词匹配（传入商品ID）- 关键词回复始终生效，不受人工接管暂停影响
                 reply = await self.get_keyword_reply(send_user_name, send_user_id, send_message, item_id)
                 if reply == "EMPTY_REPLY":
                     # 匹配到关键词但回复内容为空，不进行任何回复
@@ -7258,7 +7253,16 @@ class XianyuLive:
                 elif reply:
                     reply_source = '关键词'  # 标记为关键词回复
                 else:
-                    # 2. 关键词匹配失败，如果AI开关打开，尝试AI回复
+                    # 2. 关键词匹配失败后，检查该chat_id是否处于暂停状态
+                    # 注意：只有AI回复和默认回复受人工接管暂停影响，关键词回复始终生效
+                    if is_paused:
+                        remaining_time = pause_manager.get_remaining_pause_time(chat_id)
+                        remaining_minutes = remaining_time // 60
+                        remaining_seconds = remaining_time % 60
+                        logger.info(f"[{msg_time}] 【{self.cookie_id}】【系统】chat_id {chat_id} 自动回复已暂停（人工接管中），剩余时间: {remaining_minutes}分{remaining_seconds}秒")
+                        return
+
+                    # 3. 如果AI开关打开，尝试AI回复
                     reply = await self.get_ai_reply(send_user_name, send_user_id, send_message, item_id, chat_id)
                     if reply:
                         reply_source = 'AI'  # 标记为AI回复
