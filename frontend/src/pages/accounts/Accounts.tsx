@@ -31,6 +31,7 @@ export function Accounts() {
   const [defaultReplyAccount, setDefaultReplyAccount] = useState<AccountWithKeywordCount | null>(null)
   const [defaultReplyContent, setDefaultReplyContent] = useState('')
   const [defaultReplyImageUrl, setDefaultReplyImageUrl] = useState('')
+  const [defaultReplyOnce, setDefaultReplyOnce] = useState(false)
   const [defaultReplySaving, setDefaultReplySaving] = useState(false)
   const [uploadingDefaultReplyImage, setUploadingDefaultReplyImage] = useState(false)
 
@@ -428,13 +429,15 @@ export function Accounts() {
     setDefaultReplyAccount(account)
     setDefaultReplyContent('')
     setDefaultReplyImageUrl('')
+    setDefaultReplyOnce(false)
     setActiveModal('default-reply')
-    
+
     // 加载当前默认回复
     try {
       const result = await getDefaultReply(account.id)
       setDefaultReplyContent(result.reply_content || '')
       setDefaultReplyImageUrl(result.reply_image_url || '')
+      setDefaultReplyOnce(result.reply_once || false)
     } catch {
       // ignore
     }
@@ -442,10 +445,10 @@ export function Accounts() {
 
   const handleSaveDefaultReply = async () => {
     if (!defaultReplyAccount) return
-    
+
     try {
       setDefaultReplySaving(true)
-      await updateDefaultReply(defaultReplyAccount.id, defaultReplyContent, true, false, defaultReplyImageUrl)
+      await updateDefaultReply(defaultReplyAccount.id, defaultReplyContent, true, defaultReplyOnce, defaultReplyImageUrl)
       addToast({ type: 'success', message: '默认回复已保存' })
       closeModal()
     } catch {
@@ -1193,6 +1196,27 @@ export function Accounts() {
                     </button>
                   </div>
                 )}
+              </div>
+              <div className="input-group">
+                <div className="flex items-center justify-between">
+                  <div>
+                    <p className="text-sm text-slate-700 dark:text-slate-300">只回复一次</p>
+                    <p className="text-xs text-slate-500 dark:text-slate-400">开启后，每个用户只会收到一次默认回复</p>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => setDefaultReplyOnce(!defaultReplyOnce)}
+                    className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors ${
+                      defaultReplyOnce ? 'bg-blue-600' : 'bg-slate-300 dark:bg-slate-600'
+                    }`}
+                  >
+                    <span
+                      className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${
+                        defaultReplyOnce ? 'translate-x-6' : 'translate-x-1'
+                      }`}
+                    />
+                  </button>
+                </div>
               </div>
               <div className="p-3 bg-blue-50 dark:bg-blue-900/20 rounded-lg">
                 <p className="text-xs text-blue-600 dark:text-blue-400">
