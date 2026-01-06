@@ -3833,17 +3833,8 @@ async def add_image_keyword(
 
         logger.info(f"图片保存成功: {image_url}")
 
-        # 先检查关键词是否已存在
+        # 保存图片关键词到数据库（允许相同关键词添加多条回复）
         normalized_item_id = item_id if item_id and item_id.strip() else None
-        if db_manager.check_keyword_duplicate(cid, keyword, normalized_item_id):
-            # 删除已保存的图片
-            image_manager.delete_image(image_url)
-            if normalized_item_id:
-                raise HTTPException(status_code=400, detail=f"关键词 '{keyword}' 在商品 '{normalized_item_id}' 中已存在")
-            else:
-                raise HTTPException(status_code=400, detail=f"通用关键词 '{keyword}' 已存在")
-
-        # 保存图片关键词到数据库
         success = db_manager.save_image_keyword(cid, keyword, image_url, item_id or None)
         if not success:
             # 如果数据库保存失败，删除已保存的图片

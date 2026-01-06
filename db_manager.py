@@ -1701,40 +1701,20 @@ class DBManager:
                 return False
 
     def save_text_keywords_only(self, cookie_id: str, keywords: List[Tuple[str, str, str]]) -> bool:
-        """保存文本关键字列表，只删除文本类型的关键词，保留图片关键词"""
+        """保存文本关键字列表，只删除文本类型的关键词，保留图片关键词
+
+        注意：允许相同关键词添加多条回复（包括图片和文字），触发时全部发送
+        """
         with self.lock:
             try:
                 cursor = self.conn.cursor()
-
-                # 检查是否与现有图片关键词冲突
-                for keyword, reply, item_id in keywords:
-                    normalized_item_id = item_id if item_id and item_id.strip() else None
-
-                    # 检查是否存在同名的图片关键词
-                    if normalized_item_id:
-                        # 有商品ID的情况：检查 (cookie_id, keyword, item_id) 是否存在图片关键词
-                        self._execute_sql(cursor,
-                            "SELECT type FROM keywords WHERE cookie_id = ? AND keyword = ? AND item_id = ? AND type = 'image'",
-                            (cookie_id, keyword, normalized_item_id))
-                    else:
-                        # 通用关键词的情况：检查 (cookie_id, keyword) 是否存在图片关键词
-                        self._execute_sql(cursor,
-                            "SELECT type FROM keywords WHERE cookie_id = ? AND keyword = ? AND (item_id IS NULL OR item_id = '') AND type = 'image'",
-                            (cookie_id, keyword))
-
-                    if cursor.fetchone():
-                        # 存在同名图片关键词，抛出友好的错误信息
-                        item_desc = f"商品ID: {normalized_item_id}" if normalized_item_id else "通用关键词"
-                        error_msg = f"关键词 '{keyword}' （{item_desc}） 已存在（图片关键词），无法保存为文本关键词"
-                        logger.warning(f"文本关键词与图片关键词冲突: Cookie={cookie_id}, 关键词='{keyword}', {item_desc}")
-                        raise ValueError(error_msg)
 
                 # 只删除该cookie_id的文本类型关键字，保留图片关键词
                 self._execute_sql(cursor,
                     "DELETE FROM keywords WHERE cookie_id = ? AND (type IS NULL OR type = 'text')",
                     (cookie_id,))
 
-                # 插入新的文本关键字
+                # 插入新的文本关键字（允许与图片关键词同名）
                 for keyword, reply, item_id in keywords:
                     # 标准化item_id：空字符串转为NULL
                     normalized_item_id = item_id if item_id and item_id.strip() else None
@@ -1746,9 +1726,6 @@ class DBManager:
                 self.conn.commit()
                 logger.info(f"文本关键字保存成功: {cookie_id}, {len(keywords)}条，图片关键词已保留")
                 return True
-            except ValueError:
-                # 重新抛出友好的错误信息
-                raise
             except Exception as e:
                 logger.error(f"文本关键字保存失败: {e}")
                 self.conn.rollback()

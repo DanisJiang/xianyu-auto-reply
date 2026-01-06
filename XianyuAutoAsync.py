@@ -3181,8 +3181,14 @@ class XianyuLive:
             logger.error(f"获取默认回复失败: {self._safe_str(e)}")
             return None
 
-    async def get_keyword_reply(self, send_user_name: str, send_user_id: str, send_message: str, item_id: str = None) -> str:
-        """获取关键词匹配回复（支持商品ID优先匹配和图片类型）"""
+    async def get_keyword_reply(self, send_user_name: str, send_user_id: str, send_message: str, item_id: str = None) -> list:
+        """获取关键词匹配回复（支持商品ID优先匹配和图片类型）
+
+        返回值：
+            - list: 所有匹配的回复列表（可能包含多个文本和图片回复）
+            - "EMPTY_REPLY": 匹配到空回复关键词
+            - None: 没有匹配到任何关键词
+        """
         try:
             from db_manager import db_manager
 
@@ -3192,6 +3198,9 @@ class XianyuLive:
             if not keywords:
                 logger.warning(f"账号 {self.cookie_id} 没有配置关键词")
                 return None
+
+            matched_replies = []  # 收集所有匹配的回复
+            matched_keywords = set()  # 记录已匹配的关键词，避免重复日志
 
             # 1. 如果有商品ID，优先匹配该商品ID对应的关键词
             if item_id:
@@ -3203,31 +3212,30 @@ class XianyuLive:
                     image_url = keyword_data.get('image_url')
 
                     if keyword_item_id == item_id and keyword.lower() in send_message.lower():
-                        logger.info(f"商品ID关键词匹配成功: 商品{item_id} '{keyword}' (类型: {keyword_type})")
+                        if keyword not in matched_keywords:
+                            logger.info(f"商品ID关键词匹配成功: 商品{item_id} '{keyword}' (类型: {keyword_type})")
+                            matched_keywords.add(keyword)
 
                         # 根据关键词类型处理
                         if keyword_type == 'image' and image_url:
-                            # 图片类型关键词，发送图片
-                            return await self._handle_image_keyword(keyword, image_url, send_user_name, send_user_id, send_message)
+                            # 图片类型关键词
+                            image_reply = await self._handle_image_keyword(keyword, image_url, send_user_name, send_user_id, send_message)
+                            if image_reply and image_reply != "EMPTY_REPLY":
+                                matched_replies.append(image_reply)
                         else:
                             # 文本类型关键词，检查回复内容是否为空
-                            if not reply or (reply and reply.strip() == ''):
-                                logger.info(f"商品ID关键词 '{keyword}' 回复内容为空，不进行回复")
-                                return "EMPTY_REPLY"  # 返回特殊标记表示匹配到但不回复
-
-                            # 进行变量替换
-                            try:
-                                formatted_reply = reply.format(
-                                    send_user_name=send_user_name,
-                                    send_user_id=send_user_id,
-                                    send_message=send_message
-                                )
-                                logger.info(f"商品ID文本关键词回复: {formatted_reply}")
-                                return formatted_reply
-                            except Exception as format_error:
-                                logger.error(f"关键词回复变量替换失败: {self._safe_str(format_error)}")
-                                # 如果变量替换失败，返回原始内容
-                                return reply
+                            if reply and reply.strip():
+                                # 进行变量替换
+                                try:
+                                    formatted_reply = reply.format(
+                                        send_user_name=send_user_name,
+                                        send_user_id=send_user_id,
+                                        send_message=send_message
+                                    )
+                                    matched_replies.append(formatted_reply)
+                                except Exception as format_error:
+                                    logger.error(f"关键词回复变量替换失败: {self._safe_str(format_error)}")
+                                    matched_replies.append(reply)
 
             # 2. 如果商品ID匹配失败或没有商品ID，匹配没有商品ID的通用关键词
             for keyword_data in keywords:
@@ -3238,34 +3246,42 @@ class XianyuLive:
                 image_url = keyword_data.get('image_url')
 
                 if not keyword_item_id and keyword.lower() in send_message.lower():
-                    logger.info(f"通用关键词匹配成功: '{keyword}' (类型: {keyword_type})")
+                    if keyword not in matched_keywords:
+                        logger.info(f"通用关键词匹配成功: '{keyword}' (类型: {keyword_type})")
+                        matched_keywords.add(keyword)
 
                     # 根据关键词类型处理
                     if keyword_type == 'image' and image_url:
-                        # 图片类型关键词，发送图片
-                        return await self._handle_image_keyword(keyword, image_url, send_user_name, send_user_id, send_message)
+                        # 图片类型关键词
+                        image_reply = await self._handle_image_keyword(keyword, image_url, send_user_name, send_user_id, send_message)
+                        if image_reply and image_reply != "EMPTY_REPLY":
+                            matched_replies.append(image_reply)
                     else:
                         # 文本类型关键词，检查回复内容是否为空
-                        if not reply or (reply and reply.strip() == ''):
-                            logger.info(f"通用关键词 '{keyword}' 回复内容为空，不进行回复")
-                            return "EMPTY_REPLY"  # 返回特殊标记表示匹配到但不回复
+                        if reply and reply.strip():
+                            # 进行变量替换
+                            try:
+                                formatted_reply = reply.format(
+                                    send_user_name=send_user_name,
+                                    send_user_id=send_user_id,
+                                    send_message=send_message
+                                )
+                                matched_replies.append(formatted_reply)
+                            except Exception as format_error:
+                                logger.error(f"关键词回复变量替换失败: {self._safe_str(format_error)}")
+                                matched_replies.append(reply)
 
-                        # 进行变量替换
-                        try:
-                            formatted_reply = reply.format(
-                                send_user_name=send_user_name,
-                                send_user_id=send_user_id,
-                                send_message=send_message
-                            )
-                            logger.info(f"通用文本关键词回复: {formatted_reply}")
-                            return formatted_reply
-                        except Exception as format_error:
-                            logger.error(f"关键词回复变量替换失败: {self._safe_str(format_error)}")
-                            # 如果变量替换失败，返回原始内容
-                            return reply
-
-            logger.warning(f"未找到匹配的关键词: {send_message}")
-            return None
+            # 返回结果
+            if matched_replies:
+                logger.info(f"关键词匹配完成，共 {len(matched_replies)} 条回复")
+                return matched_replies
+            elif matched_keywords:
+                # 匹配到关键词但所有回复都为空
+                logger.info(f"匹配到关键词但回复内容为空，不进行回复")
+                return "EMPTY_REPLY"
+            else:
+                logger.warning(f"未找到匹配的关键词: {send_message}")
+                return None
 
         except Exception as e:
             logger.error(f"获取关键词回复失败: {self._safe_str(e)}")
@@ -7245,13 +7261,37 @@ class XianyuLive:
             # 如果API回复失败或未启用API，按新的优先级顺序处理
             if not reply:
                 # 1. 首先尝试关键词匹配（传入商品ID）- 关键词回复始终生效，不受人工接管暂停影响
-                reply = await self.get_keyword_reply(send_user_name, send_user_id, send_message, item_id)
-                if reply == "EMPTY_REPLY":
+                keyword_replies = await self.get_keyword_reply(send_user_name, send_user_id, send_message, item_id)
+                if keyword_replies == "EMPTY_REPLY":
                     # 匹配到关键词但回复内容为空，不进行任何回复
                     logger.info(f"[{msg_time}] 【{self.cookie_id}】匹配到空回复关键词，跳过自动回复")
                     return
-                elif reply:
-                    reply_source = '关键词'  # 标记为关键词回复
+                elif keyword_replies and isinstance(keyword_replies, list):
+                    # 关键词匹配成功，依次发送所有匹配的回复
+                    reply_source = '关键词'
+                    for idx, keyword_reply in enumerate(keyword_replies):
+                        # 检查是否是图片发送标记
+                        if keyword_reply.startswith("__IMAGE_SEND__"):
+                            # 提取图片URL
+                            image_url = keyword_reply.replace("__IMAGE_SEND__", "")
+                            try:
+                                await self.send_image_msg(websocket, chat_id, send_user_id, image_url)
+                                msg_time_now = time.strftime("%Y-%m-%d %H:%M:%S", time.localtime())
+                                logger.info(f"[{msg_time_now}] 【{reply_source}图片发出 {idx+1}/{len(keyword_replies)}】用户: {send_user_name} (ID: {send_user_id}), 商品({item_id}): 图片 {image_url}")
+                            except Exception as e:
+                                logger.error(f"关键词图片发送失败: {self._safe_str(e)}")
+                        else:
+                            # 普通文本消息
+                            await self.send_msg(websocket, chat_id, send_user_id, keyword_reply)
+                            msg_time_now = time.strftime("%Y-%m-%d %H:%M:%S", time.localtime())
+                            logger.info(f"[{msg_time_now}] 【{reply_source}发出 {idx+1}/{len(keyword_replies)}】用户: {send_user_name} (ID: {send_user_id}), 商品({item_id}): {keyword_reply}")
+
+                        # 多条回复之间稍微延迟，避免发送过快
+                        if idx < len(keyword_replies) - 1:
+                            await asyncio.sleep(0.5)
+
+                    # 关键词回复已处理完毕，直接返回
+                    return
                 else:
                     # 2. 关键词匹配失败后，检查该chat_id是否处于暂停状态
                     # 注意：只有AI回复和默认回复受人工接管暂停影响，关键词回复始终生效
