@@ -915,9 +915,8 @@ class DBManager:
                     self._execute_sql(cursor, "ALTER TABLE orders ADD COLUMN is_bargain INTEGER DEFAULT 0")
                     logger.info("为orders表添加is_bargain字段")
 
-                # 处理keywords表的唯一约束问题
-                # 由于SQLite不支持直接修改约束，我们需要重建表
-                self._migrate_keywords_table_constraints(cursor)
+                # 删除keywords表的唯一索引，允许相同关键词添加多条回复
+                self._remove_keywords_unique_constraints(cursor)
 
             self.conn.commit()
             logger.info(f"admin用户ID更新完成")
@@ -1239,7 +1238,29 @@ class DBManager:
             'tg': 'telegram'
         }
         return type_mapping.get(old_type.lower(), 'qq')
-    
+
+    def _remove_keywords_unique_constraints(self, cursor):
+        """删除keywords表的唯一索引，允许相同关键词添加多条回复"""
+        try:
+            # 检查并删除唯一索引
+            indexes_to_drop = ['idx_keywords_unique_no_item', 'idx_keywords_unique_with_item']
+            dropped = False
+
+            for index_name in indexes_to_drop:
+                cursor.execute(f"SELECT name FROM sqlite_master WHERE type='index' AND name='{index_name}'")
+                if cursor.fetchone():
+                    cursor.execute(f"DROP INDEX {index_name}")
+                    logger.info(f"已删除关键词唯一索引: {index_name}")
+                    dropped = True
+
+            if dropped:
+                logger.info("keywords表唯一索引已删除，现在允许相同关键词添加多条回复")
+            else:
+                logger.debug("keywords表没有唯一索引需要删除")
+
+        except Exception as e:
+            logger.error(f"删除keywords表唯一索引失败: {e}")
+
     def _migrate_keywords_table_constraints(self, cursor):
         """迁移keywords表的约束，支持基于商品ID的唯一性校验"""
         try:
