@@ -706,6 +706,13 @@ class DBManager:
                 self.set_system_setting("db_version", "1.6", "数据库版本号")
                 logger.info("数据库升级到版本1.6完成")
 
+            # 升级到版本1.7 - 为keywords表添加id主键
+            if current_version < "1.7":
+                logger.info("开始升级数据库到版本1.7...")
+                self._add_keywords_id_column(cursor)
+                self.set_system_setting("db_version", "1.7", "数据库版本号")
+                logger.info("数据库升级到版本1.7完成")
+
             # 迁移遗留数据（在所有版本升级完成后执行）
             self.migrate_legacy_data(cursor)
 
@@ -1268,6 +1275,50 @@ class DBManager:
         except Exception as e:
             logger.error(f"删除keywords表唯一索引失败: {e}")
 
+    def _add_keywords_id_column(self, cursor):
+        """为keywords表添加id主键列"""
+        try:
+            # 检查是否已有id列
+            cursor.execute("PRAGMA table_info(keywords)")
+            columns = [col[1] for col in cursor.fetchall()]
+            if 'id' in columns:
+                logger.info("keywords表已有id列，跳过")
+                return
+
+            logger.info("开始为keywords表添加id主键...")
+
+            # 创建带id主键的新表
+            cursor.execute('''
+                CREATE TABLE keywords_new (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    cookie_id TEXT,
+                    keyword TEXT,
+                    reply TEXT,
+                    item_id TEXT,
+                    type TEXT DEFAULT 'text',
+                    image_url TEXT,
+                    FOREIGN KEY (cookie_id) REFERENCES cookies(id) ON DELETE CASCADE
+                )
+            ''')
+
+            # 复制数据
+            cursor.execute('''
+                INSERT INTO keywords_new (cookie_id, keyword, reply, item_id, type, image_url)
+                SELECT cookie_id, keyword, reply, item_id, type, image_url FROM keywords
+            ''')
+
+            # 删除旧表
+            cursor.execute('DROP TABLE keywords')
+
+            # 重命名新表
+            cursor.execute('ALTER TABLE keywords_new RENAME TO keywords')
+
+            logger.info("keywords表id主键添加完成")
+
+        except Exception as e:
+            logger.error(f"为keywords表添加id主键失败: {e}")
+            raise
+
     def _migrate_keywords_table_constraints(self, cursor):
         """迁移keywords表的约束，支持基于商品ID的唯一性校验"""
         try:
@@ -1826,22 +1877,23 @@ class DBManager:
                 return False
 
     def get_keywords_with_type(self, cookie_id: str) -> List[Dict[str, any]]:
-        """获取指定Cookie的关键字列表（包含类型信息）"""
+        """获取指定Cookie的关键字列表（包含类型信息和id）"""
         with self.lock:
             try:
                 cursor = self.conn.cursor()
                 self._execute_sql(cursor,
-                    "SELECT keyword, reply, item_id, type, image_url FROM keywords WHERE cookie_id = ?",
+                    "SELECT id, keyword, reply, item_id, type, image_url FROM keywords WHERE cookie_id = ?",
                     (cookie_id,))
 
                 results = []
                 for row in cursor.fetchall():
                     keyword_data = {
-                        'keyword': row[0],
-                        'reply': row[1],
-                        'item_id': row[2],
-                        'type': row[3] or 'text',  # 默认为text类型
-                        'image_url': row[4]
+                        'id': row[0],
+                        'keyword': row[1],
+                        'reply': row[2],
+                        'item_id': row[3],
+                        'type': row[4] or 'text',  # 默认为text类型
+                        'image_url': row[5]
                     }
                     results.append(keyword_data)
 
@@ -1873,6 +1925,45 @@ class DBManager:
 
             except Exception as e:
                 logger.error(f"更新关键词图片URL失败: {e}")
+                self.conn.rollback()
+                return False
+
+    def update_keyword_by_id(self, keyword_id: int, keyword: str, reply: str, item_id: str = None) -> bool:
+        """根据ID更新关键词"""
+        with self.lock:
+            try:
+                cursor = self.conn.cursor()
+                normalized_item_id = item_id if item_id and item_id.strip() else None
+                self._execute_sql(cursor,
+                    "UPDATE keywords SET keyword = ?, reply = ?, item_id = ? WHERE id = ?",
+                    (keyword, reply, normalized_item_id, keyword_id))
+                self.conn.commit()
+                if cursor.rowcount > 0:
+                    logger.info(f"关键词更新成功: id={keyword_id}")
+                    return True
+                else:
+                    logger.warning(f"未找到关键词: id={keyword_id}")
+                    return False
+            except Exception as e:
+                logger.error(f"更新关键词失败: {e}")
+                self.conn.rollback()
+                return False
+
+    def delete_keyword_by_id(self, keyword_id: int) -> bool:
+        """根据ID删除关键词"""
+        with self.lock:
+            try:
+                cursor = self.conn.cursor()
+                self._execute_sql(cursor, "DELETE FROM keywords WHERE id = ?", (keyword_id,))
+                self.conn.commit()
+                if cursor.rowcount > 0:
+                    logger.info(f"关键词删除成功: id={keyword_id}")
+                    return True
+                else:
+                    logger.warning(f"未找到关键词: id={keyword_id}")
+                    return False
+            except Exception as e:
+                logger.error(f"删除关键词失败: {e}")
                 self.conn.rollback()
                 return False
 

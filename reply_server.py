@@ -3442,6 +3442,7 @@ def get_keywords_with_item_id(cid: str, current_user: Dict[str, Any] = Depends(g
     result = []
     for keyword_data in keywords:
         result.append({
+            "id": keyword_data['id'],
             "keyword": keyword_data['keyword'],
             "reply": keyword_data['reply'],
             "item_id": keyword_data['item_id'] or "",
@@ -3550,6 +3551,53 @@ def update_keywords_with_item_id(cid: str, body: KeywordWithItemIdIn, current_us
 
     log_with_user('info', f"更新Cookie关键字(含商品ID): {cid}, 数量: {len(keywords_to_save)}", current_user)
     return {"msg": "updated", "count": len(keywords_to_save)}
+
+
+@app.put("/keywords/{cid}/{keyword_id}")
+def update_keyword_by_id(cid: str, keyword_id: int, body: dict, current_user: Dict[str, Any] = Depends(get_current_user)):
+    """根据ID更新关键词"""
+    if cookie_manager.manager is None:
+        raise HTTPException(status_code=500, detail="CookieManager 未就绪")
+
+    user_id = current_user['user_id']
+    from db_manager import db_manager
+    user_cookies = db_manager.get_all_cookies(user_id)
+
+    if cid not in user_cookies:
+        raise HTTPException(status_code=403, detail="无权限操作该Cookie")
+
+    keyword = body.get('keyword', '').strip()
+    reply = body.get('reply', '').strip()
+    item_id = body.get('item_id', '').strip() or None
+
+    if not keyword:
+        raise HTTPException(status_code=400, detail="关键词不能为空")
+
+    success = db_manager.update_keyword_by_id(keyword_id, keyword, reply, item_id)
+    if not success:
+        raise HTTPException(status_code=404, detail="关键词不存在")
+
+    return {"msg": "updated"}
+
+
+@app.delete("/keywords/{cid}/{keyword_id}")
+def delete_keyword_by_id(cid: str, keyword_id: int, current_user: Dict[str, Any] = Depends(get_current_user)):
+    """根据ID删除关键词"""
+    if cookie_manager.manager is None:
+        raise HTTPException(status_code=500, detail="CookieManager 未就绪")
+
+    user_id = current_user['user_id']
+    from db_manager import db_manager
+    user_cookies = db_manager.get_all_cookies(user_id)
+
+    if cid not in user_cookies:
+        raise HTTPException(status_code=403, detail="无权限操作该Cookie")
+
+    success = db_manager.delete_keyword_by_id(keyword_id)
+    if not success:
+        raise HTTPException(status_code=404, detail="关键词不存在")
+
+    return {"msg": "deleted"}
 
 
 @app.get("/items/{cid}")

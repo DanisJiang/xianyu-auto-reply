@@ -160,10 +160,13 @@ export function Keywords() {
       setSaving(true)
 
       if (editingKeyword) {
+        if (!editingKeyword.id) {
+          addToast({ type: 'error', message: '关键词ID缺失，无法更新' })
+          return
+        }
         const result = await updateKeyword(
-          selectedAccount, 
-          editingKeyword.keyword,
-          editingKeyword.item_id || '',
+          selectedAccount,
+          editingKeyword.id,
           {
             keyword: keywordText.trim(),
             reply: replyText.trim(),
@@ -261,8 +264,12 @@ export function Keywords() {
 
   const handleDelete = async (keyword: Keyword) => {
     if (!confirm('确定要删除这个关键词吗？')) return
+    if (!keyword.id) {
+      addToast({ type: 'error', message: '关键词ID缺失，无法删除' })
+      return
+    }
     try {
-      await deleteKeyword(selectedAccount, keyword.keyword, keyword.item_id || '')
+      await deleteKeyword(selectedAccount, keyword.id)
       addToast({ type: 'success', message: '删除成功' })
       loadKeywords()
     } catch {

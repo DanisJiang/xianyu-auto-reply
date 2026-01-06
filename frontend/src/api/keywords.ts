@@ -1,4 +1,4 @@
-import { get, post, put } from '@/utils/request'
+import { get, post, put, del } from '@/utils/request'
 import type { Keyword, ApiResponse } from '@/types'
 
 // 获取关键词列表（包含 item_id 和 type）
@@ -21,8 +21,7 @@ export const saveKeywords = (cookieId: string, keywords: Keyword[]): Promise<Api
   return post(`/keywords-with-item-id/${cookieId}`, { keywords: textKeywords })
 }
 
-// 添加关键词（先获取列表，添加后保存）
-// 注意：允许相同关键词添加多条回复，不再检查重复
+// 添加关键词
 export const addKeyword = async (cookieId: string, data: Partial<Keyword>): Promise<ApiResponse> => {
   const keywords = await getKeywords(cookieId)
   keywords.push({
@@ -34,40 +33,25 @@ export const addKeyword = async (cookieId: string, data: Partial<Keyword>): Prom
   return saveKeywords(cookieId, keywords)
 }
 
-// 更新关键词
-// 注意：允许相同关键词，不再检查重复
+// 更新关键词（通过ID）
 export const updateKeyword = async (
   cookieId: string,
-  oldKeyword: string,
-  oldItemId: string,
+  keywordId: number | string,
   data: Partial<Keyword>
 ): Promise<ApiResponse> => {
-  const keywords = await getKeywords(cookieId)
-  const index = keywords.findIndex(k =>
-    k.keyword === oldKeyword &&
-    (k.item_id || '') === (oldItemId || '')
-  )
-  if (index === -1) {
-    return { success: false, message: '关键词不存在' }
-  }
-  keywords[index] = { ...keywords[index], ...data }
-  return saveKeywords(cookieId, keywords)
+  return put(`/keywords/${cookieId}/${keywordId}`, {
+    keyword: data.keyword || '',
+    reply: data.reply || '',
+    item_id: data.item_id || ''
+  })
 }
 
-// 删除关键词
+// 删除关键词（通过ID）
 export const deleteKeyword = async (
-  cookieId: string, 
-  keyword: string, 
-  itemId: string
+  cookieId: string,
+  keywordId: number | string
 ): Promise<ApiResponse> => {
-  const keywords = await getKeywords(cookieId)
-  const filtered = keywords.filter(k => 
-    !(k.keyword === keyword && (k.item_id || '') === (itemId || ''))
-  )
-  if (filtered.length === keywords.length) {
-    return { success: false, message: '关键词不存在' }
-  }
-  return saveKeywords(cookieId, filtered)
+  return del(`/keywords/${cookieId}/${keywordId}`)
 }
 
 // 批量添加关键词
