@@ -699,6 +699,13 @@ class DBManager:
                 self.set_system_setting("db_version", "1.5", "数据库版本号")
                 logger.info("数据库升级到版本1.5完成")
 
+            # 升级到版本1.6 - 删除关键词唯一索引，允许相同关键词多条回复
+            if current_version < "1.6":
+                logger.info("开始升级数据库到版本1.6...")
+                self._remove_keywords_unique_constraints(cursor)
+                self.set_system_setting("db_version", "1.6", "数据库版本号")
+                logger.info("数据库升级到版本1.6完成")
+
             # 迁移遗留数据（在所有版本升级完成后执行）
             self.migrate_legacy_data(cursor)
 
