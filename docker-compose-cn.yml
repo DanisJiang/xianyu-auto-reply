@@ -15,6 +15,8 @@ services:
       - ./data:/app/data:rw
       - ./logs:/app/logs:rw
       - ./global_config.yml:/app/global_config.yml:ro
+      # 图片上传目录持久化
+      - ./static/uploads:/app/static/uploads:rw
       # 可选：如果需要自定义配置
       # - ./custom_config.yml:/app/global_config.yml:ro
       # 可选：备份目录
