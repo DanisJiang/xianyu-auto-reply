@@ -22,16 +22,9 @@ export const saveKeywords = (cookieId: string, keywords: Keyword[]): Promise<Api
 }
 
 // 添加关键词（先获取列表，添加后保存）
+// 注意：允许相同关键词添加多条回复，不再检查重复
 export const addKeyword = async (cookieId: string, data: Partial<Keyword>): Promise<ApiResponse> => {
   const keywords = await getKeywords(cookieId)
-  // 检查是否已存在
-  const exists = keywords.some(k => 
-    k.keyword === data.keyword && 
-    (k.item_id || '') === (data.item_id || '')
-  )
-  if (exists) {
-    return { success: false, message: '该关键词已存在' }
-  }
   keywords.push({
     keyword: data.keyword || '',
     reply: data.reply || '',
@@ -42,30 +35,20 @@ export const addKeyword = async (cookieId: string, data: Partial<Keyword>): Prom
 }
 
 // 更新关键词
+// 注意：允许相同关键词，不再检查重复
 export const updateKeyword = async (
-  cookieId: string, 
-  oldKeyword: string, 
+  cookieId: string,
+  oldKeyword: string,
   oldItemId: string,
   data: Partial<Keyword>
 ): Promise<ApiResponse> => {
   const keywords = await getKeywords(cookieId)
-  const index = keywords.findIndex(k => 
-    k.keyword === oldKeyword && 
+  const index = keywords.findIndex(k =>
+    k.keyword === oldKeyword &&
     (k.item_id || '') === (oldItemId || '')
   )
   if (index === -1) {
     return { success: false, message: '关键词不存在' }
-  }
-  // 检查新关键词是否与其他关键词重复
-  if (data.keyword !== oldKeyword || data.item_id !== oldItemId) {
-    const duplicate = keywords.some((k, i) => 
-      i !== index && 
-      k.keyword === data.keyword && 
-      (k.item_id || '') === (data.item_id || '')
-    )
-    if (duplicate) {
-      return { success: false, message: '该关键词已存在' }
-    }
   }
   keywords[index] = { ...keywords[index], ...data }
   return saveKeywords(cookieId, keywords)
