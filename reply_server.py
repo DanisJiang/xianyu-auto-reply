@@ -3491,7 +3491,6 @@ def update_keywords_with_item_id(cid: str, body: KeywordWithItemIdIn, current_us
 
     # 验证数据格式
     keywords_to_save = []
-    keyword_set = set()  # 用于检查当前提交的关键词中是否有重复
 
     for kw_data in body.keywords:
         keyword = kw_data.get('keyword', '').strip()
@@ -3501,13 +3500,7 @@ def update_keywords_with_item_id(cid: str, body: KeywordWithItemIdIn, current_us
         if not keyword:
             raise HTTPException(status_code=400, detail="关键词不能为空")
 
-        # 检查当前提交的关键词中是否有重复
-        keyword_key = f"{keyword}|{item_id or ''}"
-        if keyword_key in keyword_set:
-            item_id_text = f"（商品ID: {item_id}）" if item_id else "（通用关键词）"
-            raise HTTPException(status_code=400, detail=f"关键词 '{keyword}' {item_id_text} 在当前提交中重复")
-        keyword_set.add(keyword_key)
-
+        # 允许相同关键词添加多条回复，不再检查重复
         keywords_to_save.append((keyword, reply, item_id))
 
     # 保存关键词（只保存文本关键词，保留图片关键词）
