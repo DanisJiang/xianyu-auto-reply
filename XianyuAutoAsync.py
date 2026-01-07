@@ -1081,8 +1081,19 @@ class XianyuLive:
             return None
 
     async def _handle_auto_delivery(self, websocket, message: dict, send_user_name: str, send_user_id: str,
-                                   item_id: str, chat_id: str, msg_time: str):
-        """统一处理自动发货逻辑"""
+                                   item_id: str, chat_id: str, msg_time: str, order_id: str = None):
+        """统一处理自动发货逻辑
+
+        Args:
+            websocket: WebSocket连接
+            message: 原始消息（可能不包含订单ID，如简化的付款通知）
+            send_user_name: 买家昵称
+            send_user_id: 买家用户ID
+            item_id: 商品ID
+            chat_id: 会话ID
+            msg_time: 消息时间
+            order_id: 订单ID（可选，如果传入则使用此值，否则尝试从message提取）
+        """
         try:
             # 检查商品是否属于当前cookies
             if item_id and item_id != "未知商品":
@@ -1097,8 +1108,11 @@ class XianyuLive:
                     logger.error(f'[{msg_time}] 【{self.cookie_id}】检查商品归属失败: {self._safe_str(e)}，跳过自动发货')
                     return
 
-            # 提取订单ID
-            order_id = self._extract_order_id(message)
+            # 提取订单ID（优先使用传入的order_id参数）
+            if order_id:
+                logger.info(f'[{msg_time}] 【{self.cookie_id}】使用传入的订单ID: {order_id}')
+            else:
+                order_id = self._extract_order_id(message)
 
             # 如果order_id不存在，直接返回
             if not order_id:
@@ -7643,8 +7657,45 @@ class XianyuLive:
                     return
                 elif red_reminder == '等待卖家发货':
                     user_url = f'https://www.goofish.com/personal?userId={user_id}'
-                    logger.info(f'[{msg_time}] 【系统】交易成功 {user_url} 等待卖家发货')
-                    # return
+                    logger.info(f'[{msg_time}] 【系统】检测到简化付款通知: 等待卖家发货 {user_url}')
+
+                    # 【重要修复】处理简化的付款通知消息
+                    # 这类消息格式: {'1': 'chat_id@goofish', '2': 1, '3': {'redReminder': '等待卖家发货'}, '4': timestamp}
+                    # 不包含订单ID，需要从数据库查询最近的未发货订单
+                    try:
+                        from db_manager import db_manager
+
+                        # 查询最近10分钟内创建的未发货订单
+                        pending_orders = db_manager.get_recent_pending_orders(self.cookie_id, minutes=10)
+
+                        if pending_orders:
+                            logger.info(f'[{msg_time}] 【{self.cookie_id}】找到 {len(pending_orders)} 个待发货订单，开始处理')
+
+                            for order in pending_orders:
+                                order_id = order.get('order_id')
+                                order_item_id = order.get('item_id')
+                                buyer_id = order.get('buyer_id', 'unknown')
+
+                                logger.info(f'[{msg_time}] 【{self.cookie_id}】处理订单: {order_id}, 商品: {order_item_id}, 买家: {buyer_id}')
+
+                                # 调用自动发货处理，传入订单ID
+                                await self._handle_auto_delivery(
+                                    websocket=websocket,
+                                    message=message,  # 原始消息（不包含订单ID，但传入order_id参数）
+                                    send_user_name='买家',  # 简化消息不包含买家昵称
+                                    send_user_id=buyer_id,
+                                    item_id=order_item_id,
+                                    chat_id=user_id,  # user_id 在此处实际上是 chat_id
+                                    msg_time=msg_time,
+                                    order_id=order_id  # 关键：传入从数据库查询到的订单ID
+                                )
+                        else:
+                            logger.warning(f'[{msg_time}] 【{self.cookie_id}】未找到最近的待发货订单，跳过处理')
+
+                    except Exception as e:
+                        logger.error(f'[{msg_time}] 【{self.cookie_id}】处理简化付款通知失败: {self._safe_str(e)}')
+
+                    return  # 处理完成后返回，避免重复处理
             except:
                 pass
 

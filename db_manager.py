@@ -5217,6 +5217,58 @@ class DBManager:
                 logger.error(f"获取所有订单列表失败: {e}")
                 return []
 
+    def get_recent_pending_orders(self, cookie_id: str, minutes: int = 10):
+        """
+        获取最近N分钟内创建的未发货订单
+
+        用于处理简化的付款通知消息（redReminder: '等待卖家发货'），
+        这类消息不包含订单ID，需要从数据库查询匹配的订单。
+
+        Args:
+            cookie_id: 账号ID
+            minutes: 时间窗口（分钟），默认10分钟
+
+        Returns:
+            符合条件的订单列表，按创建时间降序排列
+        """
+        with self.lock:
+            try:
+                cursor = self.conn.cursor()
+                # 查询最近N分钟内创建的、状态为 unknown 或 processing 的订单
+                # 排除已发货(shipped)和已取消(cancelled/closed)的订单
+                cursor.execute('''
+                SELECT order_id, item_id, buyer_id, spec_name, spec_value,
+                       quantity, amount, order_status, is_bargain, created_at, updated_at
+                FROM orders
+                WHERE cookie_id = ?
+                  AND order_status IN ('unknown', 'processing')
+                  AND created_at >= datetime('now', '-' || ? || ' minutes')
+                ORDER BY created_at DESC
+                ''', (cookie_id, minutes))
+
+                orders = []
+                for row in cursor.fetchall():
+                    orders.append({
+                        'order_id': row[0],
+                        'item_id': row[1],
+                        'buyer_id': row[2],
+                        'spec_name': row[3],
+                        'spec_value': row[4],
+                        'quantity': row[5],
+                        'amount': row[6],
+                        'status': row[7],
+                        'is_bargain': bool(row[8]) if row[8] is not None else False,
+                        'created_at': row[9],
+                        'updated_at': row[10]
+                    })
+
+                logger.info(f"查询到 {len(orders)} 个最近 {minutes} 分钟内的未发货订单 (cookie_id={cookie_id})")
+                return orders
+
+            except Exception as e:
+                logger.error(f"查询最近未发货订单失败: {cookie_id} - {e}")
+                return []
+
     def delete_table_record(self, table_name: str, record_id: str):
         """删除指定表的指定记录"""
         # 安全修复：验证表名在白名单中，防止SQL注入
