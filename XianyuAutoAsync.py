@@ -4674,11 +4674,9 @@ class XianyuLive:
             except:
                 pass
 
-            # 如果有商品标题，则保存商品信息
-            if item_title_for_save:
-                await self.save_item_info_to_db(item_id, search_text, item_title_for_save)
-            else:
-                logger.warning(f"跳过保存商品信息：缺少商品标题 - {item_id}")
+            # 注意：不再在自动发货流程中保存商品信息
+            # 因为 search_text 是 "标题 + 详情" 的拼接，保存会导致 item_detail 不断累积
+            # 商品信息应该只在 "获取商品" 时保存，而不是在自动发货时覆盖
 
             # 详细的匹配结果日志
             if rule.get('is_multi_spec'):
