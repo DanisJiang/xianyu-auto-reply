@@ -651,7 +651,7 @@ class OrderStatusHandler:
                 '你已发货': 'shipped',  # 已发货（无方括号）
                 '[你已发货，请等待买家确认收货]': 'shipped',  # 已发货（完整格式）
                 '[我已付款，等待你发货]': 'pending_ship',  # 已付款，等待发货
-                '[我已拍下，待付款]': 'processing',  # 已拍下，待付款
+                '[我已拍下，待付款]': 'pending_payment',  # 已拍下，未付款（不触发自动发货）
                 '[买家已付款]': 'pending_ship',  # 买家已付款
                 '[付款完成]': 'pending_ship',  # 付款完成
                 '[已付款，待发货]': 'pending_ship',  # 已付款，待发货

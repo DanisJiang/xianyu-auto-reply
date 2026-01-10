@@ -111,14 +111,15 @@ export interface Order {
   updated_at?: string
 }
 
-export type OrderStatus = 
-  | 'processing' 
+export type OrderStatus =
+  | 'processing'
+  | 'pending_payment'
   | 'pending_ship'
-  | 'processed' 
-  | 'shipped' 
-  | 'completed' 
+  | 'processed'
+  | 'shipped'
+  | 'completed'
   | 'refunding'
-  | 'cancelled' 
+  | 'cancelled'
   | 'unknown'
 
 // 卡券相关类型
