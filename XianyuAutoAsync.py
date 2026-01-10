@@ -1112,7 +1112,7 @@ class XianyuLive:
                             # 发送提示消息给买家
                             try:
                                 limit_msg = "抱歉，该商品每人限购一次，您已购买过，无法再次购买。"
-                                await self._send_text_reply(websocket, chat_id, limit_msg)
+                                await self.send_msg(websocket, chat_id, send_user_id, limit_msg)
                                 logger.info(f'[{msg_time}] 【{self.cookie_id}】已发送限购提示消息给买家')
                             except Exception as msg_e:
                                 logger.error(f'[{msg_time}] 【{self.cookie_id}】发送限购提示消息失败: {self._safe_str(msg_e)}')

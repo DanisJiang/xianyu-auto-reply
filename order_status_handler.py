@@ -34,7 +34,8 @@ class OrderStatusHandler:
     # 4. 退款中的订单可以设置为已完成（因为买家可能取消退款）
     # 5. 只有退款完成才设置为已关闭
     VALID_TRANSITIONS = {
-        'processing': ['pending_ship', 'shipped', 'completed', 'cancelled'],
+        'processing': ['pending_payment', 'pending_ship', 'shipped', 'completed', 'cancelled'],
+        'pending_payment': ['pending_ship', 'cancelled'],  # 待付款，可以付款或取消
         'pending_ship': ['shipped', 'completed', 'cancelled', 'refunding'],  # 已付款，可以退款
         'shipped': ['completed', 'cancelled', 'refunding'],  # 已发货，可以退款
         'completed': ['cancelled', 'refunding'],  # 已完成，可以退款
@@ -50,6 +51,7 @@ class OrderStatusHandler:
         
         self.status_mapping = {
             'processing': '处理中',     # 初始状态/基本信息阶段
+            'pending_payment': '待付款',  # 已拍下，未付款
             'pending_ship': '待发货',   # 已付款，等待发货
             'shipped': '已发货',        # 发货确认后
             'completed': '已完成',      # 交易完成
@@ -722,6 +724,7 @@ class OrderStatusHandler:
                 # 定义状态优先级（数字越大，状态越靠后）
                 status_priority = {
                     'processing': 1,      # 处理中
+                    'pending_payment': 1, # 待付款（与处理中同级）
                     'pending_ship': 2,    # 待发货
                     'shipped': 3,         # 已发货
                     'completed': 4,       # 已完成
