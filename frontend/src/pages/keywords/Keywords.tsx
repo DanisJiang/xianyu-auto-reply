@@ -24,6 +24,7 @@ export function Keywords() {
   const [keywordText, setKeywordText] = useState('')
   const [replyText, setReplyText] = useState('')
   const [itemIdText, setItemIdText] = useState('')  // 绑定的商品ID
+  const [replyOnce, setReplyOnce] = useState(false)  // 只回复一次
   const [saving, setSaving] = useState(false)
   const [importing, setImporting] = useState(false)
   const [exporting, setExporting] = useState(false)
@@ -121,6 +122,7 @@ export function Keywords() {
     setKeywordText('')
     setReplyText('')
     setItemIdText('')
+    setReplyOnce(false)
     setIsModalOpen(true)
   }
 
@@ -130,11 +132,12 @@ export function Keywords() {
       addToast({ type: 'warning', message: '图片关键词不支持编辑，请删除后重新添加' })
       return
     }
-    
+
     setEditingKeyword(keyword)
     setKeywordText(keyword.keyword)
     setReplyText(keyword.reply)
     setItemIdText(keyword.item_id || '')
+    setReplyOnce(keyword.reply_once || false)
     setIsModalOpen(true)
   }
 
@@ -171,6 +174,7 @@ export function Keywords() {
             keyword: keywordText.trim(),
             reply: replyText.trim(),
             item_id: itemIdText.trim(),
+            reply_once: replyOnce,
           }
         )
         if (result.success === false) {
@@ -481,25 +485,26 @@ export function Keywords() {
                 <th>商品ID</th>
                 <th>回复内容</th>
                 <th>类型</th>
+                <th>只回复一次</th>
                 <th>操作</th>
               </tr>
             </thead>
             <tbody>
               {!selectedAccount ? (
                 <tr>
-                  <td colSpan={5} className="text-center py-8 text-gray-500">
+                  <td colSpan={6} className="text-center py-8 text-gray-500">
                     请先选择一个账号
                   </td>
                 </tr>
               ) : loading ? (
                 <tr>
-                  <td colSpan={5} className="text-center py-8 text-gray-500">
+                  <td colSpan={6} className="text-center py-8 text-gray-500">
                     加载中...
                   </td>
                 </tr>
               ) : keywords.length === 0 ? (
                 <tr>
-                  <td colSpan={5} className="text-center py-8 text-gray-500">
+                  <td colSpan={6} className="text-center py-8 text-gray-500">
                     <div className="flex flex-col items-center gap-2">
                       <MessageSquare className="w-12 h-12 text-gray-300" />
                       <p>暂无关键词，点击上方按钮添加</p>
@@ -543,6 +548,13 @@ export function Keywords() {
                         <span className="badge-primary">图片</span>
                       ) : (
                         <span className="badge-gray">文本</span>
+                      )}
+                    </td>
+                    <td>
+                      {keyword.reply_once ? (
+                        <span className="badge-primary">是</span>
+                      ) : (
+                        <span className="text-gray-400 text-xs">否</span>
                       )}
                     </td>
                     <td>
@@ -638,6 +650,27 @@ export function Keywords() {
                   <p className="text-xs text-slate-500 dark:text-slate-400 mt-1">
                     回复内容留空时，匹配到关键词但不会自动回复，可用于屏蔽特定消息
                   </p>
+                </div>
+                <div className="flex items-center justify-between py-2">
+                  <div>
+                    <label className="input-label mb-0">只回复一次</label>
+                    <p className="text-xs text-slate-500 dark:text-slate-400">
+                      开启后，每个用户只会收到一次此关键词的自动回复
+                    </p>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => setReplyOnce(!replyOnce)}
+                    className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors ${
+                      replyOnce ? 'bg-blue-600' : 'bg-gray-300 dark:bg-gray-600'
+                    }`}
+                  >
+                    <span
+                      className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${
+                        replyOnce ? 'translate-x-6' : 'translate-x-1'
+                      }`}
+                    />
+                  </button>
                 </div>
               </div>
               <div className="modal-footer">

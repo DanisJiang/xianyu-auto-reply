@@ -73,3 +73,8 @@ export const updateItemMultiQuantityDelivery = (cookieId: string, itemId: string
 export const updateItemMultiSpec = (cookieId: string, itemId: string, enabled: boolean): Promise<ApiResponse> => {
   return put(`/items/${cookieId}/${itemId}/multi-spec`, { is_multi_spec: enabled })
 }
+
+// 更新商品限购一次设置
+export const updateItemLimitPurchase = (cookieId: string, itemId: string, enabled: boolean): Promise<ApiResponse> => {
+  return put(`/items/${cookieId}/${itemId}/limit-purchase`, { limit_purchase_once: enabled })
+}

@@ -3569,11 +3569,12 @@ def update_keyword_by_id(cid: str, keyword_id: int, body: dict, current_user: Di
     keyword = body.get('keyword', '').strip()
     reply = body.get('reply', '').strip()
     item_id = body.get('item_id', '').strip() or None
+    reply_once = body.get('reply_once')  # 可选参数，布尔值
 
     if not keyword:
         raise HTTPException(status_code=400, detail="关键词不能为空")
 
-    success = db_manager.update_keyword_by_id(keyword_id, keyword, reply, item_id)
+    success = db_manager.update_keyword_by_id(keyword_id, keyword, reply, item_id, reply_once)
     if not success:
         raise HTTPException(status_code=404, detail="关键词不存在")
 
@@ -5965,6 +5966,26 @@ def update_item_multi_spec(cookie_id: str, item_id: str, spec_data: dict, _: Non
 
         if success:
             return {"message": f"商品多规格状态已{'开启' if is_multi_spec else '关闭'}"}
+        else:
+            raise HTTPException(status_code=404, detail="商品不存在")
+
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+# 商品限购一次设置API
+@app.put("/items/{cookie_id}/{item_id}/limit-purchase")
+def update_item_limit_purchase(cookie_id: str, item_id: str, data: dict, _: None = Depends(require_auth)):
+    """更新商品的限购一次设置"""
+    try:
+        from db_manager import db_manager
+
+        limit_purchase_once = data.get('limit_purchase_once', False)
+
+        success = db_manager.update_item_limit_purchase(cookie_id, item_id, limit_purchase_once)
+
+        if success:
+            return {"message": f"商品限购设置已{'开启' if limit_purchase_once else '关闭'}"}
         else:
             raise HTTPException(status_code=404, detail="商品不存在")
 

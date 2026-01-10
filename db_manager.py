@@ -33,7 +33,7 @@ class DBManager:
         'ai_reply_settings', 'ai_conversations', 'ai_item_cache',
         'email_verifications', 'orders', 'old_notification_channels',
         'captcha_codes', 'item_replay', 'default_reply_records',
-        'user_settings', 'risk_control_logs', 'sessions'
+        'user_settings', 'risk_control_logs', 'sessions', 'keyword_reply_records'
     ])
 
     def _validate_table_name(self, table_name: str) -> bool:
@@ -575,6 +575,38 @@ class DBManager:
                     print("=" * 60 + "\n")
 
                 logger.info("数据库迁移完成：添加password_must_change列")
+
+            # 检查keywords表是否存在reply_once列
+            cursor.execute("PRAGMA table_info(keywords)")
+            keyword_columns = [column[1] for column in cursor.fetchall()]
+
+            if 'reply_once' not in keyword_columns:
+                logger.info("添加keywords表的reply_once列...")
+                cursor.execute("ALTER TABLE keywords ADD COLUMN reply_once BOOLEAN DEFAULT FALSE")
+                logger.info("数据库迁移完成：添加keywords表reply_once列")
+
+            # 创建关键词回复记录表（用于"只回复一次"功能）
+            cursor.execute('''
+            CREATE TABLE IF NOT EXISTS keyword_reply_records (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                cookie_id TEXT NOT NULL,
+                keyword_id INTEGER NOT NULL,
+                chat_id TEXT NOT NULL,
+                replied_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                UNIQUE(cookie_id, keyword_id, chat_id),
+                FOREIGN KEY (cookie_id) REFERENCES cookies(id) ON DELETE CASCADE
+            )
+            ''')
+            logger.info("keyword_reply_records表创建/检查完成")
+
+            # 检查item_info表是否存在limit_purchase_once列（限购一次功能）
+            cursor.execute("PRAGMA table_info(item_info)")
+            item_info_columns = [column[1] for column in cursor.fetchall()]
+
+            if 'limit_purchase_once' not in item_info_columns:
+                logger.info("添加item_info表的limit_purchase_once列...")
+                cursor.execute("ALTER TABLE item_info ADD COLUMN limit_purchase_once BOOLEAN DEFAULT FALSE")
+                logger.info("数据库迁移完成：添加item_info表limit_purchase_once列")
 
         except Exception as e:
             logger.error(f"数据库迁移失败: {e}")
@@ -1882,7 +1914,7 @@ class DBManager:
             try:
                 cursor = self.conn.cursor()
                 self._execute_sql(cursor,
-                    "SELECT id, keyword, reply, item_id, type, image_url FROM keywords WHERE cookie_id = ?",
+                    "SELECT id, keyword, reply, item_id, type, image_url, reply_once FROM keywords WHERE cookie_id = ?",
                     (cookie_id,))
 
                 results = []
@@ -1893,7 +1925,8 @@ class DBManager:
                         'reply': row[2],
                         'item_id': row[3],
                         'type': row[4] or 'text',  # 默认为text类型
-                        'image_url': row[5]
+                        'image_url': row[5],
+                        'reply_once': bool(row[6]) if row[6] is not None else False
                     }
                     results.append(keyword_data)
 
@@ -1928,15 +1961,20 @@ class DBManager:
                 self.conn.rollback()
                 return False
 
-    def update_keyword_by_id(self, keyword_id: int, keyword: str, reply: str, item_id: str = None) -> bool:
+    def update_keyword_by_id(self, keyword_id: int, keyword: str, reply: str, item_id: str = None, reply_once: bool = None) -> bool:
         """根据ID更新关键词"""
         with self.lock:
             try:
                 cursor = self.conn.cursor()
                 normalized_item_id = item_id if item_id and item_id.strip() else None
-                self._execute_sql(cursor,
-                    "UPDATE keywords SET keyword = ?, reply = ?, item_id = ? WHERE id = ?",
-                    (keyword, reply, normalized_item_id, keyword_id))
+                if reply_once is not None:
+                    self._execute_sql(cursor,
+                        "UPDATE keywords SET keyword = ?, reply = ?, item_id = ?, reply_once = ? WHERE id = ?",
+                        (keyword, reply, normalized_item_id, reply_once, keyword_id))
+                else:
+                    self._execute_sql(cursor,
+                        "UPDATE keywords SET keyword = ?, reply = ?, item_id = ? WHERE id = ?",
+                        (keyword, reply, normalized_item_id, keyword_id))
                 self.conn.commit()
                 if cursor.rowcount > 0:
                     logger.info(f"关键词更新成功: id={keyword_id}")
@@ -2299,6 +2337,62 @@ class DBManager:
                 logger.debug(f"清空默认回复记录: {cookie_id}")
             except Exception as e:
                 logger.error(f"清空默认回复记录失败: {e}")
+
+    # ==================== 关键词回复记录方法（只回复一次功能）====================
+
+    def add_keyword_reply_record(self, cookie_id: str, keyword_id: int, chat_id: str):
+        """记录关键词已回复的chat_id"""
+        with self.lock:
+            try:
+                cursor = self.conn.cursor()
+                cursor.execute('''
+                INSERT OR IGNORE INTO keyword_reply_records (cookie_id, keyword_id, chat_id)
+                VALUES (?, ?, ?)
+                ''', (cookie_id, keyword_id, chat_id))
+                self.conn.commit()
+                logger.debug(f"记录关键词回复: cookie={cookie_id}, keyword_id={keyword_id}, chat={chat_id}")
+            except Exception as e:
+                logger.error(f"记录关键词回复失败: {e}")
+
+    def has_keyword_reply_record(self, cookie_id: str, keyword_id: int, chat_id: str) -> bool:
+        """检查该关键词是否已经回复过该chat_id"""
+        with self.lock:
+            try:
+                cursor = self.conn.cursor()
+                cursor.execute('''
+                SELECT 1 FROM keyword_reply_records
+                WHERE cookie_id = ? AND keyword_id = ? AND chat_id = ?
+                ''', (cookie_id, keyword_id, chat_id))
+                result = cursor.fetchone()
+                return result is not None
+            except Exception as e:
+                logger.error(f"检查关键词回复记录失败: {e}")
+                return False
+
+    def clear_keyword_reply_records(self, cookie_id: str, keyword_id: int = None):
+        """清空关键词回复记录
+
+        Args:
+            cookie_id: 账号ID
+            keyword_id: 关键词ID，如果为None则清空该账号所有关键词的记录
+        """
+        with self.lock:
+            try:
+                cursor = self.conn.cursor()
+                if keyword_id is not None:
+                    cursor.execute(
+                        'DELETE FROM keyword_reply_records WHERE cookie_id = ? AND keyword_id = ?',
+                        (cookie_id, keyword_id)
+                    )
+                else:
+                    cursor.execute(
+                        'DELETE FROM keyword_reply_records WHERE cookie_id = ?',
+                        (cookie_id,)
+                    )
+                self.conn.commit()
+                logger.debug(f"清空关键词回复记录: cookie={cookie_id}, keyword_id={keyword_id}")
+            except Exception as e:
+                logger.error(f"清空关键词回复记录失败: {e}")
 
     def delete_default_reply(self, cookie_id: str) -> bool:
         """删除指定账号的默认回复设置"""
@@ -4409,6 +4503,63 @@ class DBManager:
         except Exception as e:
             logger.error(f"获取商品信息失败: {e}")
             return None
+
+    def update_item_limit_purchase(self, cookie_id: str, item_id: str, limit_purchase_once: bool) -> bool:
+        """更新商品的限购一次设置"""
+        try:
+            with self.lock:
+                cursor = self.conn.cursor()
+                cursor.execute('''
+                UPDATE item_info
+                SET limit_purchase_once = ?, updated_at = CURRENT_TIMESTAMP
+                WHERE cookie_id = ? AND item_id = ?
+                ''', (limit_purchase_once, cookie_id, item_id))
+
+                if cursor.rowcount > 0:
+                    self.conn.commit()
+                    logger.info(f"更新商品限购设置成功: {item_id} -> {limit_purchase_once}")
+                    return True
+                else:
+                    logger.warning(f"商品不存在，无法更新限购设置: {item_id}")
+                    return False
+
+        except Exception as e:
+            logger.error(f"更新商品限购设置失败: {e}")
+            self.conn.rollback()
+            return False
+
+    def has_buyer_purchased_item(self, cookie_id: str, item_id: str, buyer_id: str) -> bool:
+        """检查买家是否已购买过该商品（用于限购一次功能）
+
+        Args:
+            cookie_id: 账号ID
+            item_id: 商品ID
+            buyer_id: 买家ID
+
+        Returns:
+            bool: True表示已购买过，False表示未购买过
+        """
+        try:
+            with self.lock:
+                cursor = self.conn.cursor()
+                # 检查orders表中是否有该买家购买该商品的记录
+                # 排除已取消(cancelled)和退款中(refunding)的订单
+                cursor.execute('''
+                SELECT 1 FROM orders
+                WHERE cookie_id = ? AND item_id = ? AND buyer_id = ?
+                  AND order_status IN ('shipped', 'completed', 'pending_ship', 'processing', 'unknown')
+                LIMIT 1
+                ''', (cookie_id, item_id, buyer_id))
+
+                result = cursor.fetchone()
+                has_purchased = result is not None
+                if has_purchased:
+                    logger.info(f"买家 {buyer_id} 已购买过商品 {item_id}")
+                return has_purchased
+
+        except Exception as e:
+            logger.error(f"检查买家购买记录失败: {e}")
+            return False
 
     def update_item_multi_spec_status(self, cookie_id: str, item_id: str, is_multi_spec: bool) -> bool:
         """更新商品的多规格状态"""

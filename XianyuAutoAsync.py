@@ -1104,6 +1104,20 @@ class XianyuLive:
                         logger.warning(f'[{msg_time}] 【{self.cookie_id}】❌ 商品 {item_id} 不属于当前账号，跳过自动发货')
                         return
                     logger.warning(f'[{msg_time}] 【{self.cookie_id}】✅ 商品 {item_id} 归属验证通过')
+
+                    # 检查限购一次设置
+                    if item_info.get('limit_purchase_once'):
+                        if db_manager.has_buyer_purchased_item(self.cookie_id, item_id, send_user_id):
+                            logger.warning(f'[{msg_time}] 【{self.cookie_id}】❌ 商品 {item_id} 设置了限购一次，买家 {send_user_id} 已购买过，跳过自动发货')
+                            # 发送提示消息给买家
+                            try:
+                                limit_msg = "抱歉，该商品每人限购一次，您已购买过，无法再次购买。"
+                                await self._send_text_reply(websocket, chat_id, limit_msg)
+                                logger.info(f'[{msg_time}] 【{self.cookie_id}】已发送限购提示消息给买家')
+                            except Exception as msg_e:
+                                logger.error(f'[{msg_time}] 【{self.cookie_id}】发送限购提示消息失败: {self._safe_str(msg_e)}')
+                            return
+                        logger.info(f'[{msg_time}] 【{self.cookie_id}】✅ 限购检查通过，买家 {send_user_id} 首次购买')
                 except Exception as e:
                     logger.error(f'[{msg_time}] 【{self.cookie_id}】检查商品归属失败: {self._safe_str(e)}，跳过自动发货')
                     return
@@ -3195,7 +3209,7 @@ class XianyuLive:
             logger.error(f"获取默认回复失败: {self._safe_str(e)}")
             return None
 
-    async def get_keyword_reply(self, send_user_name: str, send_user_id: str, send_message: str, item_id: str = None) -> list:
+    async def get_keyword_reply(self, send_user_name: str, send_user_id: str, send_message: str, item_id: str = None, chat_id: str = None) -> list:
         """获取关键词匹配回复（支持商品ID优先匹配和图片类型）
 
         返回值：
@@ -3215,6 +3229,7 @@ class XianyuLive:
 
             matched_replies = []  # 收集所有匹配的回复
             matched_keywords = set()  # 记录已匹配的关键词，避免重复日志
+            replied_keyword_ids = []  # 记录需要标记为已回复的关键词ID
 
             # 1. 如果有商品ID，优先匹配该商品ID对应的关键词
             if item_id:
@@ -3224,8 +3239,16 @@ class XianyuLive:
                     keyword_item_id = keyword_data['item_id']
                     keyword_type = keyword_data.get('type', 'text')
                     image_url = keyword_data.get('image_url')
+                    keyword_id = keyword_data.get('id')
+                    reply_once = keyword_data.get('reply_once', False)
 
                     if keyword_item_id == item_id and keyword.lower() in send_message.lower():
+                        # 检查"只回复一次"设置
+                        if reply_once and chat_id and keyword_id:
+                            if db_manager.has_keyword_reply_record(self.cookie_id, keyword_id, chat_id):
+                                logger.info(f"商品ID关键词 '{keyword}' 已对该用户回复过，跳过（只回复一次）")
+                                continue
+
                         if keyword not in matched_keywords:
                             logger.info(f"商品ID关键词匹配成功: 商品{item_id} '{keyword}' (类型: {keyword_type})")
                             matched_keywords.add(keyword)
@@ -3236,6 +3259,8 @@ class XianyuLive:
                             image_reply = await self._handle_image_keyword(keyword, image_url, send_user_name, send_user_id, send_message)
                             if image_reply and image_reply != "EMPTY_REPLY":
                                 matched_replies.append(image_reply)
+                                if reply_once and keyword_id:
+                                    replied_keyword_ids.append(keyword_id)
                         else:
                             # 文本类型关键词，检查回复内容是否为空
                             if reply and reply.strip():
@@ -3247,9 +3272,13 @@ class XianyuLive:
                                         send_message=send_message
                                     )
                                     matched_replies.append(formatted_reply)
+                                    if reply_once and keyword_id:
+                                        replied_keyword_ids.append(keyword_id)
                                 except Exception as format_error:
                                     logger.error(f"关键词回复变量替换失败: {self._safe_str(format_error)}")
                                     matched_replies.append(reply)
+                                    if reply_once and keyword_id:
+                                        replied_keyword_ids.append(keyword_id)
 
             # 2. 如果商品ID匹配失败或没有商品ID，匹配没有商品ID的通用关键词
             for keyword_data in keywords:
@@ -3258,8 +3287,16 @@ class XianyuLive:
                 keyword_item_id = keyword_data['item_id']
                 keyword_type = keyword_data.get('type', 'text')
                 image_url = keyword_data.get('image_url')
+                keyword_id = keyword_data.get('id')
+                reply_once = keyword_data.get('reply_once', False)
 
                 if not keyword_item_id and keyword.lower() in send_message.lower():
+                    # 检查"只回复一次"设置
+                    if reply_once and chat_id and keyword_id:
+                        if db_manager.has_keyword_reply_record(self.cookie_id, keyword_id, chat_id):
+                            logger.info(f"通用关键词 '{keyword}' 已对该用户回复过，跳过（只回复一次）")
+                            continue
+
                     if keyword not in matched_keywords:
                         logger.info(f"通用关键词匹配成功: '{keyword}' (类型: {keyword_type})")
                         matched_keywords.add(keyword)
@@ -3270,6 +3307,8 @@ class XianyuLive:
                         image_reply = await self._handle_image_keyword(keyword, image_url, send_user_name, send_user_id, send_message)
                         if image_reply and image_reply != "EMPTY_REPLY":
                             matched_replies.append(image_reply)
+                            if reply_once and keyword_id:
+                                replied_keyword_ids.append(keyword_id)
                     else:
                         # 文本类型关键词，检查回复内容是否为空
                         if reply and reply.strip():
@@ -3281,9 +3320,18 @@ class XianyuLive:
                                     send_message=send_message
                                 )
                                 matched_replies.append(formatted_reply)
+                                if reply_once and keyword_id:
+                                    replied_keyword_ids.append(keyword_id)
                             except Exception as format_error:
                                 logger.error(f"关键词回复变量替换失败: {self._safe_str(format_error)}")
                                 matched_replies.append(reply)
+                                if reply_once and keyword_id:
+                                    replied_keyword_ids.append(keyword_id)
+
+            # 记录"只回复一次"的关键词回复
+            if matched_replies and chat_id and replied_keyword_ids:
+                for kid in replied_keyword_ids:
+                    db_manager.add_keyword_reply_record(self.cookie_id, kid, chat_id)
 
             # 返回结果
             if matched_replies:
@@ -7273,7 +7321,7 @@ class XianyuLive:
             # 如果API回复失败或未启用API，按新的优先级顺序处理
             if not reply:
                 # 1. 首先尝试关键词匹配（传入商品ID）- 关键词回复始终生效，不受人工接管暂停影响
-                keyword_replies = await self.get_keyword_reply(send_user_name, send_user_id, send_message, item_id)
+                keyword_replies = await self.get_keyword_reply(send_user_name, send_user_id, send_message, item_id, chat_id)
                 if keyword_replies == "EMPTY_REPLY":
                     # 匹配到关键词但回复内容为空，不进行任何回复
                     logger.info(f"[{msg_time}] 【{self.cookie_id}】匹配到空回复关键词，跳过自动回复")

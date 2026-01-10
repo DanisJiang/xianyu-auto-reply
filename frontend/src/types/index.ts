@@ -54,6 +54,7 @@ export interface Keyword {
   type?: 'text' | 'image' | 'item' | 'normal'  // 关键词类型
   image_url?: string    // 图片类型关键词的图片URL
   fuzzy_match?: boolean
+  reply_once?: boolean  // 只回复一次
   created_at?: string
   updated_at?: string
 }
@@ -75,6 +76,7 @@ export interface Item {
   is_multi_spec?: number | boolean
   multi_delivery?: boolean
   multi_quantity_delivery?: number | boolean
+  limit_purchase_once?: number | boolean  // 限购一次
   created_at?: string
   updated_at?: string
 }

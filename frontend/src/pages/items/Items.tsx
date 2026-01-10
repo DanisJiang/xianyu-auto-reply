@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 import { CheckSquare, Download, Edit2, ExternalLink, Loader2, Package, RefreshCw, Search, Square, Trash2, X } from 'lucide-react'
-import { batchDeleteItems, deleteItem, fetchAllItemsFromAccount, getItems, updateItem, updateItemMultiQuantityDelivery, updateItemMultiSpec } from '@/api/items'
+import { batchDeleteItems, deleteItem, fetchAllItemsFromAccount, getItems, updateItem, updateItemMultiQuantityDelivery, updateItemMultiSpec, updateItemLimitPurchase } from '@/api/items'
 import { getAccounts } from '@/api/accounts'
 import { useUIStore } from '@/store/uiStore'
 import { PageLoading } from '@/components/common/Loading'
@@ -167,6 +167,18 @@ export function Items() {
     }
   }
 
+  // 切换限购一次状态
+  const handleToggleLimitPurchase = async (item: Item) => {
+    try {
+      const newStatus = !item.limit_purchase_once
+      await updateItemLimitPurchase(item.cookie_id, item.item_id, newStatus)
+      addToast({ type: 'success', message: `限购一次已${newStatus ? '开启' : '关闭'}` })
+      loadItems()
+    } catch {
+      addToast({ type: 'error', message: '操作失败' })
+    }
+  }
+
   // 打开编辑弹窗
   const handleEdit = (item: Item) => {
     setEditingItem(item)
@@ -314,6 +326,7 @@ export function Items() {
                 <th className="whitespace-nowrap">价格</th>
                 <th className="whitespace-nowrap">多规格</th>
                 <th className="whitespace-nowrap">多数量发货</th>
+                <th className="whitespace-nowrap">限购一次</th>
                 <th className="whitespace-nowrap">更新时间</th>
                 <th className="whitespace-nowrap sticky right-0 bg-slate-50 dark:bg-slate-800">操作</th>
               </tr>
@@ -321,7 +334,7 @@ export function Items() {
             <tbody>
               {filteredItems.length === 0 ? (
                 <tr>
-                  <td colSpan={9}>
+                  <td colSpan={10}>
                     <div className="empty-state py-8">
                       <Package className="empty-state-icon" />
                       <p className="text-gray-500">暂无商品数据</p>
@@ -398,6 +411,19 @@ export function Items() {
                         title={item.multi_quantity_delivery ? '点击关闭多数量发货' : '点击开启多数量发货'}
                       >
                         {item.multi_quantity_delivery ? '已开启' : '已关闭'}
+                      </button>
+                    </td>
+                    <td>
+                      <button
+                        onClick={() => handleToggleLimitPurchase(item)}
+                        className={`px-2 py-1 rounded text-xs font-medium transition-colors ${
+                          item.limit_purchase_once
+                            ? 'bg-green-100 text-green-700 hover:bg-green-200 dark:bg-green-900/30 dark:text-green-400'
+                            : 'bg-gray-100 text-gray-500 hover:bg-gray-200 dark:bg-gray-800 dark:text-gray-400'
+                        }`}
+                        title={item.limit_purchase_once ? '点击关闭限购一次' : '点击开启限购一次'}
+                      >
+                        {item.limit_purchase_once ? '已开启' : '已关闭'}
                       </button>
                     </td>
                     <td className="text-gray-500 text-xs">

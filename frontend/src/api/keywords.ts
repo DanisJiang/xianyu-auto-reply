@@ -42,7 +42,8 @@ export const updateKeyword = async (
   return put(`/keywords/${cookieId}/${keywordId}`, {
     keyword: data.keyword || '',
     reply: data.reply || '',
-    item_id: data.item_id || ''
+    item_id: data.item_id || '',
+    reply_once: data.reply_once
   })
 }
 
