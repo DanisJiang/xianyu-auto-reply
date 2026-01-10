@@ -4528,13 +4528,14 @@ class DBManager:
             self.conn.rollback()
             return False
 
-    def has_buyer_purchased_item(self, cookie_id: str, item_id: str, buyer_id: str) -> bool:
+    def has_buyer_purchased_item(self, cookie_id: str, item_id: str, buyer_id: str, exclude_order_id: str = None) -> bool:
         """检查买家是否已购买过该商品（用于限购一次功能）
 
         Args:
             cookie_id: 账号ID
             item_id: 商品ID
             buyer_id: 买家ID
+            exclude_order_id: 排除的订单ID（当前正在处理的订单）
 
         Returns:
             bool: True表示已购买过，False表示未购买过
@@ -4542,14 +4543,23 @@ class DBManager:
         try:
             with self.lock:
                 cursor = self.conn.cursor()
-                # 检查orders表中是否有该买家购买该商品的已发货/已完成记录
-                # 只检查shipped和completed状态，避免把当前订单误判为"已购买过"
-                cursor.execute('''
-                SELECT 1 FROM orders
-                WHERE cookie_id = ? AND item_id = ? AND buyer_id = ?
-                  AND order_status IN ('shipped', 'completed')
-                LIMIT 1
-                ''', (cookie_id, item_id, buyer_id))
+                # 检查orders表中是否有该买家购买该商品的记录
+                # 排除已取消(cancelled)和退款完成的订单，以及当前正在处理的订单
+                if exclude_order_id:
+                    cursor.execute('''
+                    SELECT 1 FROM orders
+                    WHERE cookie_id = ? AND item_id = ? AND buyer_id = ?
+                      AND order_status NOT IN ('cancelled', 'refunding')
+                      AND order_id != ?
+                    LIMIT 1
+                    ''', (cookie_id, item_id, buyer_id, exclude_order_id))
+                else:
+                    cursor.execute('''
+                    SELECT 1 FROM orders
+                    WHERE cookie_id = ? AND item_id = ? AND buyer_id = ?
+                      AND order_status NOT IN ('cancelled', 'refunding')
+                    LIMIT 1
+                    ''', (cookie_id, item_id, buyer_id))
 
                 result = cursor.fetchone()
                 has_purchased = result is not None

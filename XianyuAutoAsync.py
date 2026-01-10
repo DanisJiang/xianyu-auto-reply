@@ -1095,33 +1095,6 @@ class XianyuLive:
             order_id: 订单ID（可选，如果传入则使用此值，否则尝试从message提取）
         """
         try:
-            # 检查商品是否属于当前cookies
-            if item_id and item_id != "未知商品":
-                try:
-                    from db_manager import db_manager
-                    item_info = db_manager.get_item_info(self.cookie_id, item_id)
-                    if not item_info:
-                        logger.warning(f'[{msg_time}] 【{self.cookie_id}】❌ 商品 {item_id} 不属于当前账号，跳过自动发货')
-                        return
-                    logger.warning(f'[{msg_time}] 【{self.cookie_id}】✅ 商品 {item_id} 归属验证通过')
-
-                    # 检查限购一次设置
-                    if item_info.get('limit_purchase_once'):
-                        if db_manager.has_buyer_purchased_item(self.cookie_id, item_id, send_user_id):
-                            logger.warning(f'[{msg_time}] 【{self.cookie_id}】❌ 商品 {item_id} 设置了限购一次，买家 {send_user_id} 已购买过，跳过自动发货')
-                            # 发送提示消息给买家
-                            try:
-                                limit_msg = "抱歉，该商品每人限购一次，您已购买过，无法再次购买。"
-                                await self.send_msg(websocket, chat_id, send_user_id, limit_msg)
-                                logger.info(f'[{msg_time}] 【{self.cookie_id}】已发送限购提示消息给买家')
-                            except Exception as msg_e:
-                                logger.error(f'[{msg_time}] 【{self.cookie_id}】发送限购提示消息失败: {self._safe_str(msg_e)}')
-                            return
-                        logger.info(f'[{msg_time}] 【{self.cookie_id}】✅ 限购检查通过，买家 {send_user_id} 首次购买')
-                except Exception as e:
-                    logger.error(f'[{msg_time}] 【{self.cookie_id}】检查商品归属失败: {self._safe_str(e)}，跳过自动发货')
-                    return
-
             # 提取订单ID（优先使用传入的order_id参数）
             if order_id:
                 logger.info(f'[{msg_time}] 【{self.cookie_id}】使用传入的订单ID: {order_id}')
@@ -1135,6 +1108,33 @@ class XianyuLive:
 
             # 订单ID已提取，将在自动发货时进行确认发货处理
             logger.info(f'[{msg_time}] 【{self.cookie_id}】提取到订单ID: {order_id}，将在自动发货时处理确认发货')
+
+            # 检查商品是否属于当前cookies
+            if item_id and item_id != "未知商品":
+                try:
+                    from db_manager import db_manager
+                    item_info = db_manager.get_item_info(self.cookie_id, item_id)
+                    if not item_info:
+                        logger.warning(f'[{msg_time}] 【{self.cookie_id}】❌ 商品 {item_id} 不属于当前账号，跳过自动发货')
+                        return
+                    logger.warning(f'[{msg_time}] 【{self.cookie_id}】✅ 商品 {item_id} 归属验证通过')
+
+                    # 检查限购一次设置（传入当前订单ID排除）
+                    if item_info.get('limit_purchase_once'):
+                        if db_manager.has_buyer_purchased_item(self.cookie_id, item_id, send_user_id, exclude_order_id=order_id):
+                            logger.warning(f'[{msg_time}] 【{self.cookie_id}】❌ 商品 {item_id} 设置了限购一次，买家 {send_user_id} 已购买过，跳过自动发货')
+                            # 发送提示消息给买家
+                            try:
+                                limit_msg = "抱歉，该商品每人限购一次，您已购买过，无法再次购买。"
+                                await self.send_msg(websocket, chat_id, send_user_id, limit_msg)
+                                logger.info(f'[{msg_time}] 【{self.cookie_id}】已发送限购提示消息给买家')
+                            except Exception as msg_e:
+                                logger.error(f'[{msg_time}] 【{self.cookie_id}】发送限购提示消息失败: {self._safe_str(msg_e)}')
+                            return
+                        logger.info(f'[{msg_time}] 【{self.cookie_id}】✅ 限购检查通过，买家 {send_user_id} 首次购买')
+                except Exception as e:
+                    logger.error(f'[{msg_time}] 【{self.cookie_id}】检查商品归属失败: {self._safe_str(e)}，跳过自动发货')
+                    return
 
             # 使用订单ID作为锁的键
             lock_key = order_id
