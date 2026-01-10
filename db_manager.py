@@ -4542,12 +4542,12 @@ class DBManager:
         try:
             with self.lock:
                 cursor = self.conn.cursor()
-                # 检查orders表中是否有该买家购买该商品的记录
-                # 排除已取消(cancelled)和退款中(refunding)的订单
+                # 检查orders表中是否有该买家购买该商品的已发货/已完成记录
+                # 只检查shipped和completed状态，避免把当前订单误判为"已购买过"
                 cursor.execute('''
                 SELECT 1 FROM orders
                 WHERE cookie_id = ? AND item_id = ? AND buyer_id = ?
-                  AND order_status IN ('shipped', 'completed', 'pending_ship', 'processing', 'unknown')
+                  AND order_status IN ('shipped', 'completed')
                 LIMIT 1
                 ''', (cookie_id, item_id, buyer_id))
 
