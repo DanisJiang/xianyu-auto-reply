@@ -5395,14 +5395,15 @@ class DBManager:
         with self.lock:
             try:
                 cursor = self.conn.cursor()
-                # 查询最近N分钟内创建的、状态为 unknown 或 processing 的订单
+                # 查询最近N分钟内创建的、状态为未发货状态的订单
+                # 包含: unknown, processing, pending_payment, pending_ship
                 # 排除已发货(shipped)和已取消(cancelled/closed)的订单
                 cursor.execute('''
                 SELECT order_id, item_id, buyer_id, spec_name, spec_value,
                        quantity, amount, order_status, is_bargain, created_at, updated_at
                 FROM orders
                 WHERE cookie_id = ?
-                  AND order_status IN ('unknown', 'processing')
+                  AND order_status IN ('unknown', 'processing', 'pending_payment', 'pending_ship')
                   AND created_at >= datetime('now', '-' || ? || ' minutes')
                 ORDER BY created_at DESC
                 ''', (cookie_id, minutes))

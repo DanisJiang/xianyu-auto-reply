@@ -7711,6 +7711,11 @@ class XianyuLive:
                     try:
                         from db_manager import db_manager
 
+                        # 【竞态条件修复】简化付款通知可能在订单详情获取完成之前到达
+                        # 先等待15秒，确保订单详情已保存到数据库
+                        logger.info(f'[{msg_time}] 【{self.cookie_id}】等待15秒确保订单详情保存完成...')
+                        await asyncio.sleep(15)
+
                         # 查询最近10分钟内创建的未发货订单
                         pending_orders = db_manager.get_recent_pending_orders(self.cookie_id, minutes=10)
 
