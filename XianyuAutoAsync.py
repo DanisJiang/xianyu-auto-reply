@@ -1276,11 +1276,20 @@ class XianyuLive:
 
                                 else:
                                     # 普通文本发货内容
-                                    await self.send_msg(websocket, chat_id, send_user_id, delivery_content)
-                                    if len(delivery_contents) > 1:
-                                        logger.info(f'[{msg_time}] 【多数量自动发货】第 {i+1}/{len(delivery_contents)} 条已向 {user_url} 发送发货内容')
+                                    send_success = await self.send_msg(websocket, chat_id, send_user_id, delivery_content)
+                                    if send_success:
+                                        if len(delivery_contents) > 1:
+                                            logger.info(f'[{msg_time}] 【多数量自动发货】第 {i+1}/{len(delivery_contents)} 条已向 {user_url} 发送发货内容')
+                                        else:
+                                            logger.info(f'[{msg_time}] 【自动发货】已向 {user_url} 发送发货内容')
                                     else:
-                                        logger.info(f'[{msg_time}] 【自动发货】已向 {user_url} 发送发货内容')
+                                        # 发送失败，记录错误并发送通知
+                                        logger.error(f'[{msg_time}] 【自动发货失败】消息发送到 {user_url} 失败，可能需要手动发货')
+                                        await self.send_delivery_failure_notification(
+                                            send_user_name, send_user_id, item_id,
+                                            f"⚠️ 消息发送失败，请手动发送发货内容给买家。发货内容: {delivery_content[:50]}...",
+                                            chat_id
+                                        )
 
                                     # 多数量发货时，消息间隔1秒
                                     if len(delivery_contents) > 1 and i < len(delivery_contents) - 1:
@@ -5298,50 +5307,88 @@ class XianyuLive:
         await ws.send(json.dumps(msg))
 
     async def send_msg(self, ws, cid, toid, text):
-        text = {
-            "contentType": 1,
-            "text": {
-                "text": text
-            }
-        }
-        text_base64 = str(base64.b64encode(json.dumps(text).encode('utf-8')), 'utf-8')
-        msg = {
-            "lwp": "/r/MessageSend/sendByReceiverScope",
-            "headers": {
-                "mid": generate_mid()
-            },
-            "body": [
-                {
-                    "uuid": generate_uuid(),
-                    "cid": f"{cid}@goofish",
-                    "conversationType": 1,
-                    "content": {
-                        "contentType": 101,
-                        "custom": {
-                            "type": 1,
-                            "data": text_base64
-                        }
-                    },
-                    "redPointPolicy": 0,
-                    "extension": {
-                        "extJson": "{}"
-                    },
-                    "ctx": {
-                        "appVersion": "1.0",
-                        "platform": "web"
-                    },
-                    "mtags": {},
-                    "msgReadStatusSetting": 1
-                },
-                {
-                    "actualReceivers": [
-                        f"{toid}@goofish",
-                        f"{self.myid}@goofish"
-                    ]
+        """发送文本消息给指定用户
+
+        Args:
+            ws: WebSocket连接
+            cid: 会话ID
+            toid: 接收者用户ID
+            text: 消息内容
+
+        Returns:
+            bool: 发送是否成功
+        """
+        # 截取消息内容用于日志（保护隐私，只显示前30字符）
+        text_preview = text[:30] + "..." if len(text) > 30 else text
+        logger.info(f"【{self.cookie_id}】准备发送消息到用户 {toid}, 会话 {cid}, 内容预览: {text_preview}")
+
+        try:
+            # 检查WebSocket连接状态
+            if ws is None:
+                logger.error(f"【{self.cookie_id}】WebSocket连接为空，无法发送消息")
+                return False
+
+            # 检查WebSocket是否已关闭
+            if hasattr(ws, 'closed') and ws.closed:
+                logger.error(f"【{self.cookie_id}】WebSocket连接已关闭，无法发送消息")
+                return False
+
+            text_obj = {
+                "contentType": 1,
+                "text": {
+                    "text": text
                 }
-            ]
-        }
-        await ws.send(json.dumps(msg))
+            }
+            text_base64 = str(base64.b64encode(json.dumps(text_obj).encode('utf-8')), 'utf-8')
+            msg_uuid = generate_uuid()
+            msg = {
+                "lwp": "/r/MessageSend/sendByReceiverScope",
+                "headers": {
+                    "mid": generate_mid()
+                },
+                "body": [
+                    {
+                        "uuid": msg_uuid,
+                        "cid": f"{cid}@goofish",
+                        "conversationType": 1,
+                        "content": {
+                            "contentType": 101,
+                            "custom": {
+                                "type": 1,
+                                "data": text_base64
+                            }
+                        },
+                        "redPointPolicy": 0,
+                        "extension": {
+                            "extJson": "{}"
+                        },
+                        "ctx": {
+                            "appVersion": "1.0",
+                            "platform": "web"
+                        },
+                        "mtags": {},
+                        "msgReadStatusSetting": 1
+                    },
+                    {
+                        "actualReceivers": [
+                            f"{toid}@goofish",
+                            f"{self.myid}@goofish"
+                        ]
+                    }
+                ]
+            }
+
+            # 发送消息
+            await ws.send(json.dumps(msg))
+            logger.info(f"【{self.cookie_id}】✅ 消息已发送到WebSocket (uuid={msg_uuid}), 接收者: {toid}")
+            return True
+
+        except websockets.exceptions.ConnectionClosed as e:
+            logger.error(f"【{self.cookie_id}】❌ 发送消息失败: WebSocket连接已关闭 - {self._safe_str(e)}")
+            return False
+        except Exception as e:
+            logger.error(f"【{self.cookie_id}】❌ 发送消息异常: {self._safe_str(e)}")
+            return False
 
     async def init(self, ws):
         # 如果没有token或者token过期，获取新token
