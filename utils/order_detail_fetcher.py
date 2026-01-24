@@ -99,7 +99,8 @@ class OrderDetailFetcher:
                 '--hide-scrollbars',
                 '--mute-audio',
                 '--no-default-browser-check',
-                '--no-pings'
+                '--no-pings',
+                '--disable-blink-features=AutomationControlled',  # 反爬检测
             ]
 
             # 移除--single-process参数，使用多进程模式提高稳定性
@@ -121,7 +122,6 @@ class OrderDetailFetcher:
                     '--metrics-recording-only',
                     '--no-first-run',
                     '--safebrowsing-disable-auto-update',
-                    '--enable-automation',
                     '--password-store=basic',
                     '--use-mock-keychain',
                     # 添加内存优化和稳定性参数
@@ -151,7 +151,17 @@ class OrderDetailFetcher:
                 user_agent='Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/138.0.0.0 Safari/537.36'
             )
 
-            logger.info("浏览器上下文创建成功，设置HTTP头...")
+            logger.info("浏览器上下文创建成功，添加反检测脚本...")
+
+            # 添加反检测脚本，防止被识别为自动化浏览器
+            await self.context.add_init_script("""
+                Object.defineProperty(navigator, 'webdriver', {get: () => undefined});
+                Object.defineProperty(navigator, 'plugins', {get: () => [1, 2, 3, 4, 5]});
+                Object.defineProperty(navigator, 'languages', {get: () => ['zh-CN', 'zh', 'en']});
+                window.chrome = {runtime: {}};
+            """)
+
+            logger.info("设置HTTP头...")
 
             # 设置额外的HTTP头
             await self.context.set_extra_http_headers(self.headers)
