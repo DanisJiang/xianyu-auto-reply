@@ -2685,7 +2685,8 @@ class XianyuLive:
                 '--hide-scrollbars',
                 '--mute-audio',
                 '--no-default-browser-check',
-                '--no-pings'
+                '--no-pings',
+                '--disable-blink-features=AutomationControlled'  # 反爬检测
             ]
 
             # 在Docker环境中添加额外参数
@@ -2700,7 +2701,6 @@ class XianyuLive:
                     '--disable-web-resources',
                     '--metrics-recording-only',
                     '--safebrowsing-disable-auto-update',
-                    '--enable-automation',
                     '--password-store=basic',
                     '--use-mock-keychain'
                 ])
@@ -2715,6 +2715,13 @@ class XianyuLive:
                 viewport={'width': 1920, 'height': 1080},
                 user_agent='Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/138.0.0.0 Safari/537.36'
             )
+
+            # 添加反检测脚本
+            await context.add_init_script("""
+                Object.defineProperty(navigator, 'webdriver', {get: () => undefined});
+                Object.defineProperty(navigator, 'plugins', {get: () => [1, 2, 3, 4, 5]});
+                window.chrome = {runtime: {}};
+            """)
 
             # 设置Cookie
             cookies = []
@@ -5895,7 +5902,8 @@ class XianyuLive:
                 '--hide-scrollbars',
                 '--mute-audio',
                 '--no-default-browser-check',
-                '--no-pings'
+                '--no-pings',
+                '--disable-blink-features=AutomationControlled'  # 反爬检测
             ]
 
             # 在Docker环境中添加额外参数
@@ -5910,7 +5918,6 @@ class XianyuLive:
                     '--disable-web-resources',
                     '--metrics-recording-only',
                     '--safebrowsing-disable-auto-update',
-                    '--enable-automation',
                     '--password-store=basic',
                     '--use-mock-keychain'
                 ])
@@ -5930,6 +5937,13 @@ class XianyuLive:
             context_options['viewport'] = {'width': 1920, 'height': 1080}
 
             context = await browser.new_context(**context_options)
+
+            # 添加反检测脚本
+            await context.add_init_script("""
+                Object.defineProperty(navigator, 'webdriver', {get: () => undefined});
+                Object.defineProperty(navigator, 'plugins', {get: () => [1, 2, 3, 4, 5]});
+                window.chrome = {runtime: {}};
+            """)
 
             # 设置扫码登录获取的Cookie
             cookies = []
@@ -6290,7 +6304,8 @@ class XianyuLive:
                 '--hide-scrollbars',
                 '--mute-audio',
                 '--no-default-browser-check',
-                '--no-pings'
+                '--no-pings',
+                '--disable-blink-features=AutomationControlled'  # 反爬检测
             ]
 
             # 在Docker环境中添加额外参数
@@ -6304,7 +6319,6 @@ class XianyuLive:
                     '--disable-web-resources',
                     '--metrics-recording-only',
                     '--safebrowsing-disable-auto-update',
-                    '--enable-automation',
                     '--password-store=basic',
                     '--use-mock-keychain'
                 ])
@@ -6324,6 +6338,13 @@ class XianyuLive:
             context_options['viewport'] = {'width': 1920, 'height': 1080}
 
             context = await browser.new_context(**context_options)
+
+            # 添加反检测脚本
+            await context.add_init_script("""
+                Object.defineProperty(navigator, 'webdriver', {get: () => undefined});
+                Object.defineProperty(navigator, 'plugins', {get: () => [1, 2, 3, 4, 5]});
+                window.chrome = {runtime: {}};
+            """)
 
             # 设置当前的Cookie
             cookies = []
@@ -6592,7 +6613,8 @@ class XianyuLive:
                 '--hide-scrollbars',
                 '--mute-audio',
                 '--no-default-browser-check',
-                '--no-pings'
+                '--no-pings',
+                '--disable-blink-features=AutomationControlled'  # 反爬检测
             ]
 
             # 在Docker环境中添加额外参数
@@ -6607,7 +6629,6 @@ class XianyuLive:
                     '--disable-web-resources',
                     '--metrics-recording-only',
                     '--safebrowsing-disable-auto-update',
-                    '--enable-automation',
                     '--password-store=basic',
                     '--use-mock-keychain'
                 ])
@@ -6627,6 +6648,13 @@ class XianyuLive:
             context_options['viewport'] = {'width': 1920, 'height': 1080}
 
             context = await browser.new_context(**context_options)
+
+            # 添加反检测脚本
+            await context.add_init_script("""
+                Object.defineProperty(navigator, 'webdriver', {get: () => undefined});
+                Object.defineProperty(navigator, 'plugins', {get: () => [1, 2, 3, 4, 5]});
+                window.chrome = {runtime: {}};
+            """)
 
             # 设置当前Cookie
             cookies = []
