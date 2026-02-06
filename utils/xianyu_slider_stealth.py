@@ -590,18 +590,18 @@ class XianyuSliderStealth:
             
             # 优化参数 - 真实人类模式（优先真实度而非速度）
             # 计算步数范围（确保最小值 < 最大值）
-            steps_min = max(110, int(safe_avg(total_steps_list) - safe_std(total_steps_list) * 0.8))
-            steps_max = min(130, int(safe_avg(total_steps_list) + safe_std(total_steps_list) * 0.8))
+            steps_min = max(8, int(safe_avg(total_steps_list) - safe_std(total_steps_list) * 0.8))
+            steps_max = min(25, int(safe_avg(total_steps_list) + safe_std(total_steps_list) * 0.8))
             if steps_min >= steps_max:
-                steps_min = 115
-                steps_max = 125
-            
+                steps_min = 10
+                steps_max = 18
+
             # 计算延迟范围（确保最小值 < 最大值）
-            delay_min = max(0.020, safe_avg(base_delay_list) - safe_std(base_delay_list) * 0.6)
-            delay_max = min(0.030, safe_avg(base_delay_list) + safe_std(base_delay_list) * 0.6)
+            delay_min = max(0.001, safe_avg(base_delay_list) - safe_std(base_delay_list) * 0.6)
+            delay_max = min(0.010, safe_avg(base_delay_list) + safe_std(base_delay_list) * 0.6)
             if delay_min >= delay_max:
-                delay_min = 0.022
-                delay_max = 0.027
+                delay_min = 0.001
+                delay_max = 0.005
             
             # 计算慢速因子范围（确保最小值 < 最大值）
             slow_min = max(5, int(safe_avg(slow_factor_list) - safe_std(slow_factor_list)))
@@ -1281,7 +1281,7 @@ class XianyuSliderStealth:
 
             # 添加人类化时间抖动（±15%）
             delay *= random.uniform(0.85, 1.15)
-            delay = max(0.008, min(0.05, delay))
+            delay = max(0.001, min(0.03, delay))
 
             trajectory.append((current_x, y, delay))
 
@@ -1382,7 +1382,7 @@ class XianyuSliderStealth:
                 self.page.mouse.move(
                     start_x + offset_x,
                     start_y + offset_y,
-                    steps=random.randint(5, 10)
+                    steps=random.randint(2, 3)
                 )
                 time.sleep(random.uniform(0.15, 0.3))
                 
@@ -1390,7 +1390,7 @@ class XianyuSliderStealth:
                 self.page.mouse.move(
                     start_x,
                     start_y,
-                    steps=random.randint(3, 6)
+                    steps=random.randint(1, 2)
                 )
                 time.sleep(random.uniform(0.1, 0.25))
             except Exception as e:
