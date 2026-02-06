@@ -279,18 +279,24 @@ class XianyuSliderStealth:
         
         self.success_history_file = f"trajectory_history/{self.pure_user_id}_success.json"
         self.trajectory_params = {
-            "total_steps_range": [5, 8],  # 极速：5-8步（超快滑动）
-            "base_delay_range": [0.0002, 0.0005],  # 极速：0.2-0.5ms延迟
-            "jitter_x_range": [0, 1],  # 极小抖动
-            "jitter_y_range": [0, 1],  # 极小抖动
-            "slow_factor_range": [10, 15],  # 极快加速因子
-            "acceleration_phase": 1.0,  # 全程加速
-            "fast_phase": 1.0,  # 无慢速
-            "slow_start_ratio_base": 2.0,  # 确保超调100%
-            "completion_usage_rate": 0.05,  # 极少补全使用率
-            "avg_completion_steps": 1.0,  # 极少补全步数
+            "total_steps_range": [35, 65],           # 人类化：35-65步
+            "base_delay_range": [0.012, 0.025],      # 12-25ms（40-83Hz鼠标采样率）
+            "jitter_x_range": [0, 0.5],              # 微小X轴噪声
+            "jitter_y_range": [0, 0.3],              # 微小Y轴噪声
+            "slow_factor_range": [1.5, 3.0],         # 末端减速强度
+            "acceleration_phase": 0.25,              # 前25%加速
+            "fast_phase": 0.55,                      # 25%-55%巡航
+            "slow_start_ratio_base": 1.0,            # 不再超调200%
+            "overshoot_px_range": [2, 6],            # 超调2-6px
+            "correction_steps_range": [2, 5],        # 超调后回退2-5步
+            "correction_delay_range": [0.03, 0.06],  # 修正阶段更慢
+            "y_amplitude_range": [2.0, 6.0],         # Y轴正弦波幅度
+            "y_frequency_range": [1.0, 2.5],         # Y轴振荡频率
+            "release_delay_range": [0.10, 0.25],     # 释放鼠标前停顿
+            "completion_usage_rate": 1.0,             # 始终使用修正步
+            "avg_completion_steps": 3.0,              # 平均3步修正
             "trajectory_length_stats": [],
-            "learning_enabled": False
+            "learning_enabled": True
         }
         
         # 保存最后一次使用的轨迹参数（用于分析优化）
@@ -1184,67 +1190,170 @@ class XianyuSliderStealth:
         else:
             return t
     
-    def _generate_physics_trajectory(self, distance: float):
-        """基于物理加速度模型生成轨迹 - 极速模式
-        
-        优化策略：
-        1. 极少轨迹点（5-8步）：快速完成
-        2. 持续加速：一气呵成，不减速
-        3. 确保超调50%以上：保证滑动到位
-        4. 无回退：单向滑动
+    def _smooth_position(self, t: float) -> float:
+        """将时间进度映射到位置进度（Logistic S曲线）
+
+        导数为钟形速度分布：先加速→峰值在45%处→减速
+
+        Args:
+            t: 时间进度 0.0~1.0
+        Returns:
+            位置进度 0.0~1.0
         """
+        k = 10          # 控制曲线陡度
+        center = 0.45   # 峰值速度位置（略偏前，人类习惯提前发力）
+
+        raw = 1.0 / (1.0 + math.exp(-k * (t - center)))
+        raw_0 = 1.0 / (1.0 + math.exp(-k * (0 - center)))
+        raw_1 = 1.0 / (1.0 + math.exp(-k * (1 - center)))
+
+        return (raw - raw_0) / (raw_1 - raw_0)
+
+    def _generate_human_trajectory_points(self, distance: float):
+        """生成人类化滑动轨迹 - 四阶段速度曲线
+
+        速度分布：加速(0-25%) → 巡航(25-55%) → 减速(55-90%) → 微调(90-100%)
+        Y轴：正弦函数 + 高斯噪声模拟手腕弧线
+        末端：超调2-6px后回退修正
+        """
+        params = self.trajectory_params
         trajectory = []
-        # 确保超调100%
-        target_distance = distance * random.uniform(2.0, 2.1)  # 超调100-110%
-        
-        # 极少步数（5-8步）
-        steps = random.randint(5, 8)
-        
-        # 极快时间间隔
-        base_delay = random.uniform(0.0002, 0.0005)
-        
-        # 生成轨迹点 - 直线加速
-        for i in range(steps):
-            progress = (i + 1) / steps
-            
-            # 计算当前位置（使用平方加速曲线，越来越快）
-            x = target_distance * (progress ** 1.5)  # 加速曲线
-            
-            # 极小Y轴抖动
-            y = random.uniform(0, 2)
-            
-            # 极短延迟
-            delay = base_delay * random.uniform(0.9, 1.1)
-            
-            trajectory.append((x, y, delay))
-        
-        logger.info(f"【{self.pure_user_id}】极速模式：{len(trajectory)}步，超调100%+")
+
+        # 1. 确定步数（根据距离调整）
+        base_steps = random.randint(*params["total_steps_range"])
+        distance_factor = math.sqrt(distance / 200.0)  # 距离越大步数越多，但用sqrt阻尼
+        total_steps = max(30, min(80, int(base_steps * distance_factor)))
+
+        # 2. 超调参数
+        overshoot_px = random.uniform(*params["overshoot_px_range"])
+        target_with_overshoot = distance + overshoot_px
+
+        # 3. Y轴参数（平滑正弦弧线）
+        y_amplitude = random.uniform(*params["y_amplitude_range"])
+        y_frequency = random.uniform(*params["y_frequency_range"])
+        y_phase = random.uniform(0, math.pi)
+        y_direction = random.choice([-1, 1])
+
+        # 4. 时间参数
+        base_delay = random.uniform(*params["base_delay_range"])
+
+        # 5. 生成主轨迹（到超调点）
+        prev_x = 0.0
+
+        for i in range(total_steps):
+            t = (i + 1) / total_steps  # 进度 0..1
+
+            # 用Sigmoid曲线计算目标位置
+            target_x = target_with_overshoot * self._smooth_position(t)
+            dx = target_x - prev_x
+
+            # 加入微小X轴噪声
+            dx += random.gauss(0, 0.3)
+            current_x = prev_x + dx
+            prev_x = current_x
+
+            # Y轴：正弦波 + 高斯噪声
+            y = y_direction * y_amplitude * math.sin(y_frequency * math.pi * t + y_phase)
+            y += random.gauss(0, 0.4)
+
+            # 计算速度因子（用于调整延迟）
+            if t < 0.25:
+                # 加速阶段
+                speed = (t / 0.25) ** 2.5
+            elif t < 0.55:
+                # 巡航阶段（微小波动）
+                speed = 1.0 + random.gauss(0, 0.08)
+                speed = max(0.7, min(1.3, speed))
+            elif t < 0.90:
+                # 减速阶段
+                normalized = (t - 0.55) / 0.35
+                speed = 1.0 * (1.0 - normalized ** 1.8)
+                speed = max(0.12, speed)
+            else:
+                # 微调阶段
+                speed = 0.08 + random.uniform(0, 0.06)
+
+            # 延迟：速度越快延迟越短
+            if speed > 0.01:
+                delay = base_delay / max(speed, 0.1)
+            else:
+                delay = base_delay * 8
+
+            # 添加人类化时间抖动（±15%）
+            delay *= random.uniform(0.85, 1.15)
+            delay = max(0.008, min(0.05, delay))
+
+            trajectory.append((current_x, y, delay))
+
+        # 6. 生成修正步（超调 → 目标位置）
+        correction_steps = random.randint(*params["correction_steps_range"])
+        current_x = prev_x
+
+        for i in range(correction_steps):
+            progress = (i + 1) / correction_steps
+            remaining = current_x - distance
+            step_back = remaining * random.uniform(0.5, 0.8)
+            current_x = current_x - step_back
+
+            # Y轴逐步归零
+            y = y_direction * y_amplitude * 0.3 * math.sin(y_frequency * math.pi + y_phase) * (1 - progress)
+            y += random.gauss(0, 0.2)
+
+            delay = random.uniform(*params["correction_delay_range"])
+            trajectory.append((current_x, y, delay))
+
+        # 7. 最终定位点
+        final_y = random.gauss(0, 0.3)
+        trajectory.append((distance + random.uniform(-0.3, 0.3), final_y, random.uniform(0.02, 0.04)))
+
+        total_time = sum(t[2] for t in trajectory)
+        logger.info(f"【{self.pure_user_id}】人类化轨迹：{len(trajectory)}步, "
+                    f"{total_time*1000:.0f}ms, 超调{overshoot_px:.1f}px, 修正{correction_steps}步")
+
         return trajectory
     
     def generate_human_trajectory(self, distance: float):
-        """生成人类化滑动轨迹 - 只使用极速物理模型"""
+        """生成人类化滑动轨迹"""
         try:
-            # 只使用物理加速度模型（移除贝塞尔模型以提高速度和稳定性）
-            logger.info(f"【{self.pure_user_id}】📐 使用极速物理模型生成轨迹")
-            trajectory = self._generate_physics_trajectory(distance)
-            
-            logger.debug(f"【{self.pure_user_id}】极速模式：一次拖到位，无回退")
-            
-            # 保存轨迹数据
+            logger.info(f"【{self.pure_user_id}】📐 生成人类化滑动轨迹，距离: {distance:.1f}px")
+            trajectory = self._generate_human_trajectory_points(distance)
+
+            if not trajectory:
+                logger.error(f"【{self.pure_user_id}】轨迹生成返回空")
+                return []
+
+            # 计算统计信息
+            total_time = sum(p[2] for p in trajectory)
+            max_x = max(p[0] for p in trajectory)
+            final_x = trajectory[-1][0]
+
+            logger.info(f"【{self.pure_user_id}】轨迹统计: {len(trajectory)}点, "
+                        f"{total_time*1000:.0f}ms, max_x={max_x:.1f}px, final_x={final_x:.1f}px")
+
+            # 保存轨迹数据（兼容学习系统 _save_success_record）
             self.current_trajectory_data = {
                 "distance": distance,
-                "model": "physics_fast",
+                "model": "human_like",
                 "total_steps": len(trajectory),
                 "trajectory_points": trajectory.copy(),
                 "final_left_px": 0,
-                "completion_used": False,
-                "completion_steps": 0
+                "completion_used": True,
+                "completion_steps": self.trajectory_params.get("correction_steps_range", [2, 5])[1],
+                "base_delay": total_time / len(trajectory),
+                "jitter_x_range": self.trajectory_params.get("jitter_x_range", [0, 0.5]),
+                "jitter_y_range": self.trajectory_params.get("jitter_y_range", [0, 0.3]),
+                "slow_factor": self.trajectory_params.get("slow_factor_range", [1.5, 3.0])[0],
+                "acceleration_phase": self.trajectory_params.get("acceleration_phase", 0.25),
+                "fast_phase": self.trajectory_params.get("fast_phase", 0.55),
+                "slow_start_ratio": max_x / distance if distance > 0 else 1.0,
             }
-            
+
             return trajectory
-            
+
         except Exception as e:
             logger.error(f"【{self.pure_user_id}】生成轨迹时出错: {str(e)}")
+            import traceback
+            logger.error(traceback.format_exc())
             return []
     
     def simulate_slide(self, slider_button: ElementHandle, trajectory):
@@ -1316,11 +1425,11 @@ class XianyuSliderStealth:
                     current_x = start_x + x
                     current_y = start_y + y
                     
-                    # 移动鼠标
+                    # 移动鼠标（steps=1，轨迹点已经足够密集）
                     self.page.mouse.move(
                         current_x,
                         current_y,
-                        steps=random.randint(1, 3)
+                        steps=1
                     )
                     
                     # 延迟（添加微小随机变化）
@@ -1350,29 +1459,13 @@ class XianyuSliderStealth:
                     logger.warning(f"【{self.pure_user_id}】🎨 刮刮乐模式：在目标位置停顿{pause_duration:.2f}秒观察...")
                     time.sleep(pause_duration)
                 
-                # 释放鼠标
-                time.sleep(random.uniform(0.02, 0.05))
+                # 释放鼠标（人类会在确认位置后才松手）
+                time.sleep(random.uniform(0.10, 0.25))
                 self.page.mouse.up()
-                time.sleep(random.uniform(0.01, 0.03))
+                time.sleep(random.uniform(0.05, 0.15))
                 
-                # 触发click事件
-                try:
-                    slider_button.evaluate(f"""
-                        (slider) => {{
-                            const event = new MouseEvent('click', {{
-                                bubbles: true,
-                                cancelable: true,
-                                view: window,
-                                clientX: {current_x},
-                                clientY: {current_y},
-                                button: 0
-                            }});
-                            slider.dispatchEvent(event);
-                        }}
-                    """)
-                except Exception as e:
-                    logger.debug(f"【{self.pure_user_id}】触发click事件失败（可忽略）: {e}")
-                
+                # 注意：不再手动触发click事件，拖拽操作不应该产生click
+
                 elapsed_time = time.time() - start_time
                 logger.info(f"【{self.pure_user_id}】滑动完成: 耗时={elapsed_time:.2f}秒, 最终位置=({current_x:.1f}, {current_y:.1f})")
                 
@@ -2238,7 +2331,7 @@ class XianyuSliderStealth:
             fast_mode: 快速查找模式（当已确认滑块存在时使用，减少等待时间）
         """
         failure_records = []
-        current_strategy = 'ultra_fast'  # 极速策略
+        current_strategy = 'human_like'  # 人类化策略
         
         for attempt in range(1, max_retries + 1):
             try:
@@ -2246,7 +2339,7 @@ class XianyuSliderStealth:
                 
                 # 如果不是第一次尝试，短暂等待后重试
                 if attempt > 1:
-                    retry_delay = random.uniform(0.5, 1.0)  # 减少等待时间
+                    retry_delay = random.uniform(1.5, 3.0)  # 人类化等待时间
                     logger.info(f"【{self.pure_user_id}】等待{retry_delay:.2f}秒后重试...")
                     time.sleep(retry_delay)
                     
