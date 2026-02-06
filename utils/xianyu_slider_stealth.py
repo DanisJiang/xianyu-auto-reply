@@ -279,8 +279,8 @@ class XianyuSliderStealth:
         
         self.success_history_file = f"trajectory_history/{self.pure_user_id}_success.json"
         self.trajectory_params = {
-            "total_steps_range": [35, 65],           # 人类化：35-65步
-            "base_delay_range": [0.012, 0.025],      # 12-25ms（40-83Hz鼠标采样率）
+            "total_steps_range": [15, 28],           # 考虑CDP开销~35ms/步，15-28步 → 实际600-1200ms
+            "base_delay_range": [0.003, 0.010],      # 3-10ms（CDP本身已有~35ms开销）
             "jitter_x_range": [0, 0.5],              # 微小X轴噪声
             "jitter_y_range": [0, 0.3],              # 微小Y轴噪声
             "slow_factor_range": [1.5, 3.0],         # 末端减速强度
@@ -288,8 +288,8 @@ class XianyuSliderStealth:
             "fast_phase": 0.55,                      # 25%-55%巡航
             "slow_start_ratio_base": 1.0,            # 不再超调200%
             "overshoot_px_range": [2, 6],            # 超调2-6px
-            "correction_steps_range": [2, 5],        # 超调后回退2-5步
-            "correction_delay_range": [0.03, 0.06],  # 修正阶段更慢
+            "correction_steps_range": [2, 4],        # 超调后回退2-4步
+            "correction_delay_range": [0.01, 0.03],  # 修正阶段延迟（CDP会加~35ms）
             "y_amplitude_range": [2.0, 6.0],         # Y轴正弦波幅度
             "y_frequency_range": [1.0, 2.5],         # Y轴振荡频率
             "release_delay_range": [0.10, 0.25],     # 释放鼠标前停顿
