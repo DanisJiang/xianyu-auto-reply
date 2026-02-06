@@ -1222,7 +1222,7 @@ class XianyuSliderStealth:
         # 1. 确定步数（根据距离调整）
         base_steps = random.randint(*params["total_steps_range"])
         distance_factor = math.sqrt(distance / 200.0)  # 距离越大步数越多，但用sqrt阻尼
-        total_steps = max(30, min(80, int(base_steps * distance_factor)))
+        total_steps = max(8, min(30, int(base_steps * distance_factor)))
 
         # 2. 超调参数
         overshoot_px = random.uniform(*params["overshoot_px_range"])
