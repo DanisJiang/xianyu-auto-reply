@@ -279,8 +279,8 @@ class XianyuSliderStealth:
         
         self.success_history_file = f"trajectory_history/{self.pure_user_id}_success.json"
         self.trajectory_params = {
-            "total_steps_range": [15, 28],           # 考虑CDP开销~35ms/步，15-28步 → 实际600-1200ms
-            "base_delay_range": [0.003, 0.010],      # 3-10ms（CDP本身已有~35ms开销）
+            "total_steps_range": [10, 18],           # CDP开销~68ms/步，10-18步 → 实际700-1300ms
+            "base_delay_range": [0.001, 0.005],      # 1-5ms（CDP本身已有~68ms开销）
             "jitter_x_range": [0, 0.5],              # 微小X轴噪声
             "jitter_y_range": [0, 0.3],              # 微小Y轴噪声
             "slow_factor_range": [1.5, 3.0],         # 末端减速强度
