@@ -2134,21 +2134,30 @@ def patch_login_with_password_headful():
                 
                 finally:
                     # 关闭浏览器
-                    try:
-                        if show_browser:
-                            logger.info(f"【{user_id}】有头模式：保持浏览器打开，等待手动关闭...")
-                            logger.info(f"【{user_id}】关闭浏览器后，缓存将自动保存到: {user_data_dir}")
-                            # 不关闭浏览器，让用户手动关闭
-                        else:
+                    if show_browser:
+                        logger.info(f"【{user_id}】有头模式：保持浏览器打开，等待手动关闭...")
+                        logger.info(f"【{user_id}】关闭浏览器后，缓存将自动保存到: {user_data_dir}")
+                    else:
+                        try:
                             context.close()
-                            playwright.stop()
-                            logger.info(f"【{user_id}】无头模式：浏览器已关闭，缓存已保存")
-                    except Exception as e:
-                        logger.warning(f"【{user_id}】关闭浏览器时出错: {e}")
+                        except Exception as e:
+                            logger.warning(f"【{user_id}】关闭context时出错: {e}")
                         try:
                             playwright.stop()
-                        except:
-                            pass
+                            logger.info(f"【{user_id}】无头模式：浏览器已关闭，缓存已保存")
+                        except Exception as e:
+                            logger.warning(f"【{user_id}】停止Playwright时出错: {e}，强制终止进程")
+                            try:
+                                proc = getattr(
+                                    getattr(getattr(playwright, '_connection', None), '_transport', None),
+                                    '_proc', None
+                                )
+                                if proc and proc.poll() is None:
+                                    proc.kill()
+                                    proc.wait(timeout=5)
+                                    logger.warning(f"【{user_id}】已强制终止 Playwright 进程 (pid={proc.pid})")
+                            except Exception as kill_e:
+                                logger.warning(f"【{user_id}】强制终止失败: {kill_e}")
             
             except Exception as e:
                 logger.error(f"【{user_id}】密码登录流程异常: {e}")

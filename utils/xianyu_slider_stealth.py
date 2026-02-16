@@ -2418,19 +2418,158 @@ class XianyuSliderStealth:
         
         # 所有尝试都失败了
         logger.error(f"【{self.pure_user_id}】滑块验证失败，已尝试{max_retries}次")
-        
+
         # 输出失败分析摘要
         if failure_records:
             logger.info(f"【{self.pure_user_id}】失败分析摘要:")
             for record in failure_records:
                 logger.info(f"  - 第{record['attempt']}次: 距离{record['slide_distance']}px, "
                           f"步数{record['total_steps']}, 最终位置{record['final_left_px']}px")
-        
+
+        # 本地全部失败后，尝试第三方打码平台作为 fallback
+        if self._try_external_captcha_solver():
+            strategy_stats.log_summary()
+            return True
+
         # 输出当前统计摘要
         strategy_stats.log_summary()
-        
+
         return False
     
+    def _try_external_captcha_solver(self) -> bool:
+        """使用第三方打码平台解决滑块验证（fallback）"""
+        try:
+            from utils.captcha_solver import CaptchaSolver
+            solver = CaptchaSolver()
+            if not solver.is_configured:
+                logger.debug(f"【{self.pure_user_id}】第三方打码服务未配置，跳过")
+                return False
+
+            logger.info(f"【{self.pure_user_id}】正在使用第三方打码服务 ({solver.provider}) ...")
+
+            # 1. 截图滑块区域
+            screenshot_b64 = self._capture_captcha_screenshot()
+            if not screenshot_b64:
+                logger.error(f"【{self.pure_user_id}】无法截取验证码区域截图")
+                return False
+
+            # 2. 发送到打码平台
+            result = solver.solve_slider(screenshot_b64)
+            if not result:
+                logger.warning(f"【{self.pure_user_id}】第三方打码服务未返回有效结果")
+                return False
+
+            logger.info(f"【{self.pure_user_id}】打码平台返回坐标: x={result.get('x')}")
+
+            # 3. 重新查找滑块元素
+            slider_container, slider_button, slider_track = self.find_slider_elements(fast_mode=True)
+            if not all([slider_container, slider_button, slider_track]):
+                logger.error(f"【{self.pure_user_id}】打码后重新查找滑块元素失败")
+                return False
+
+            # 4. 使用打码平台返回的距离（如果是坐标型，转换为滑动距离）
+            external_distance = result.get("x", 0)
+            if external_distance <= 0:
+                # 如果打码平台没返回有效距离，仍用本地计算的距离
+                external_distance = self.calculate_slide_distance(slider_button, slider_track)
+                logger.info(f"【{self.pure_user_id}】使用本地计算距离: {external_distance:.2f}px")
+            else:
+                logger.info(f"【{self.pure_user_id}】使用打码平台距离: {external_distance}px")
+
+            if external_distance <= 0:
+                logger.error(f"【{self.pure_user_id}】滑动距离无效")
+                return False
+
+            # 5. 生成轨迹并执行滑动
+            trajectory = self.generate_human_trajectory(external_distance)
+            if not trajectory:
+                logger.error(f"【{self.pure_user_id}】打码后轨迹生成失败")
+                return False
+
+            if not self.simulate_slide(slider_button, trajectory):
+                logger.error(f"【{self.pure_user_id}】打码后滑动模拟失败")
+                return False
+
+            # 6. 检查验证结果
+            if self.check_verification_success_fast(slider_button):
+                logger.info(f"【{self.pure_user_id}】✅ 第三方打码滑块验证成功!")
+                return True
+            else:
+                logger.warning(f"【{self.pure_user_id}】❌ 第三方打码滑块验证失败")
+                return False
+
+        except Exception as e:
+            logger.error(f"【{self.pure_user_id}】第三方打码异常: {e}")
+            return False
+
+    def _capture_captcha_screenshot(self) -> Optional[str]:
+        """截取滑块验证码区域的 base64 图片"""
+        try:
+            screenshot_bytes = None
+
+            # 优先截取滑块所在的 iframe/frame 元素
+            if hasattr(self, '_detected_slider_frame') and self._detected_slider_frame is not None:
+                frame = self._detected_slider_frame
+                # 尝试截取 frame 中的验证码容器
+                for selector in ("#baxia-dialog-content", ".nc-container", "#nc_1_n1t"):
+                    try:
+                        element = frame.query_selector(selector)
+                        if element and element.is_visible():
+                            screenshot_bytes = element.screenshot()
+                            logger.info(f"【{self.pure_user_id}】已截取frame中的验证码元素: {selector}")
+                            break
+                    except Exception:
+                        continue
+
+            # 如果 frame 截取失败，尝试在主页面截取
+            if not screenshot_bytes and self.page:
+                for selector in ("#baxia-dialog-content", ".nc-container", "#nocaptcha", "[class*='captcha']"):
+                    try:
+                        element = self.page.query_selector(selector)
+                        if element and element.is_visible():
+                            screenshot_bytes = element.screenshot()
+                            logger.info(f"【{self.pure_user_id}】已截取主页面验证码元素: {selector}")
+                            break
+                    except Exception:
+                        continue
+
+            # 最后兜底：截取整个页面
+            if not screenshot_bytes and self.page:
+                screenshot_bytes = self.page.screenshot(full_page=False)
+                logger.info(f"【{self.pure_user_id}】已截取整个页面作为验证码截图")
+
+            if screenshot_bytes:
+                import base64
+                return base64.b64encode(screenshot_bytes).decode("utf-8")
+
+            return None
+
+        except Exception as e:
+            logger.error(f"【{self.pure_user_id}】截取验证码截图出错: {e}")
+            return None
+
+    def _kill_sync_playwright_process(self):
+        """强制 kill 同步 Playwright 底层 node 子进程，防止进程泄漏"""
+        try:
+            pw = self.playwright if hasattr(self, 'playwright') else None
+            if not pw:
+                return
+            proc = getattr(
+                getattr(getattr(pw, '_connection', None), '_transport', None),
+                '_proc', None
+            )
+            if proc and proc.poll() is None:
+                proc.kill()
+                try:
+                    proc.wait(timeout=5)
+                except Exception:
+                    pass
+                logger.warning(f"【{self.pure_user_id}】已强制终止 Playwright 进程 (pid={proc.pid})")
+            else:
+                logger.debug(f"【{self.pure_user_id}】Playwright 进程已终止或不可访问")
+        except Exception as e:
+            logger.warning(f"【{self.pure_user_id}】强制终止 Playwright 进程失败: {e}")
+
     def close_browser(self):
         """安全关闭浏览器并清理资源"""
         logger.info(f"【{self.pure_user_id}】开始清理资源...")
@@ -2469,7 +2608,9 @@ class XianyuSliderStealth:
                 logger.info(f"【{self.pure_user_id}】Playwright已停止")
                 self.playwright = None
         except Exception as e:
-            logger.warning(f"【{self.pure_user_id}】停止Playwright时出错: {e}")
+            logger.warning(f"【{self.pure_user_id}】停止Playwright时出错: {e}，强制终止进程")
+            self._kill_sync_playwright_process()
+            self.playwright = None
         
         # 清理临时目录
         try:
@@ -3914,17 +4055,27 @@ class XianyuSliderStealth:
                     self.playwright = original_playwright
             
             finally:
-                # 关闭浏览器
+                # 关闭浏览器（分开处理，避免 context.close() 失败导致 playwright 泄漏）
                 try:
                     context.close()
+                except Exception as e:
+                    logger.warning(f"【{self.pure_user_id}】关闭context时出错: {e}")
+                try:
                     playwright.stop()
                     logger.info(f"【{self.pure_user_id}】浏览器已关闭，缓存已保存")
                 except Exception as e:
-                    logger.warning(f"【{self.pure_user_id}】关闭浏览器时出错: {e}")
+                    logger.warning(f"【{self.pure_user_id}】停止Playwright时出错: {e}，强制终止进程")
                     try:
-                        playwright.stop()
-                    except:
-                        pass
+                        proc = getattr(
+                            getattr(getattr(playwright, '_connection', None), '_transport', None),
+                            '_proc', None
+                        )
+                        if proc and proc.poll() is None:
+                            proc.kill()
+                            proc.wait(timeout=5)
+                            logger.warning(f"【{self.pure_user_id}】已强制终止 Playwright 进程 (pid={proc.pid})")
+                    except Exception as kill_e:
+                        logger.warning(f"【{self.pure_user_id}】强制终止失败: {kill_e}")
         
         except Exception as e:
             logger.error(f"【{self.pure_user_id}】密码登录流程异常: {e}")

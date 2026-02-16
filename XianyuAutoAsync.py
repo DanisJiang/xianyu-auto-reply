@@ -2785,10 +2785,14 @@ class XianyuLive:
             
             try:
                 if playwright:
-                    await playwright.stop()
+                    await asyncio.wait_for(playwright.stop(), timeout=5.0)
                     logger.warning(f"Playwright已停止: {item_id}")
+            except asyncio.TimeoutError:
+                logger.warning(f"Playwright关闭超时: {item_id}，强制终止进程")
+                self._kill_playwright_process(playwright, f"item={item_id}")
             except Exception as e:
                 logger.warning(f"停止playwright时出错: {self._safe_str(e)}")
+                self._kill_playwright_process(playwright, f"item={item_id}")
 
 
     async def save_items_list_to_db(self, items_list):
@@ -6184,17 +6188,11 @@ class XianyuLive:
                         await asyncio.wait_for(playwright.stop(), timeout=2.0)
                         logger.warning(f"【{target_cookie_id}】Playwright关闭完成")
                     except asyncio.TimeoutError:
-                        logger.warning(f"【{target_cookie_id}】Playwright关闭超时（2秒），进程可能仍在运行")
-                        logger.warning(f"【{target_cookie_id}】提示：如果后续Playwright启动失败，可能需要手动清理残留进程")
-                        # 尝试清理Playwright的内部状态
-                        try:
-                            # 取消可能正在运行的Playwright任务
-                            if hasattr(playwright, '_transport'):
-                                playwright._transport = None
-                        except:
-                            pass
+                        logger.warning(f"【{target_cookie_id}】Playwright关闭超时（2秒），强制终止进程")
+                        self._kill_playwright_process(playwright, f"【{target_cookie_id}】")
                     except Exception as e:
                         logger.warning(f"【{target_cookie_id}】关闭Playwright时出错: {self._safe_str(e)}")
+                        self._kill_playwright_process(playwright, f"【{target_cookie_id}】")
             except Exception as cleanup_e:
                 logger.warning(f"【{target_cookie_id}】清理浏览器资源时出错: {self._safe_str(cleanup_e)}")
 
@@ -6485,9 +6483,11 @@ class XianyuLive:
                         await asyncio.wait_for(playwright.stop(), timeout=2.0)
                         logger.warning(f"【{self.cookie_id}】Playwright关闭完成")
                     except asyncio.TimeoutError:
-                        logger.warning(f"【{self.cookie_id}】Playwright关闭超时（2秒），进程可能仍在运行")
+                        logger.warning(f"【{self.cookie_id}】Playwright关闭超时（2秒），强制终止进程")
+                        self._kill_playwright_process(playwright, f"【{self.cookie_id}】")
                     except Exception as e:
                         logger.warning(f"【{self.cookie_id}】关闭Playwright时出错: {self._safe_str(e)}")
+                        self._kill_playwright_process(playwright, f"【{self.cookie_id}】")
             except Exception as cleanup_e:
                 logger.warning(f"【{self.cookie_id}】清理浏览器资源时出错: {self._safe_str(cleanup_e)}")
 
@@ -6912,21 +6912,16 @@ class XianyuLive:
                     await asyncio.wait_for(playwright.stop(), timeout=5.0)
                     logger.info(f"【{self.cookie_id}】Playwright关闭完成")
                 except asyncio.TimeoutError:
-                    logger.warning(f"【{self.cookie_id}】Playwright关闭超时，将自动清理")
-                    # 尝试强制清理Playwright的内部连接
-                    try:
-                        if hasattr(playwright, '_connection'):
-                            playwright._connection.dispose()
-                    except Exception:
-                        pass
+                    logger.warning(f"【{self.cookie_id}】Playwright关闭超时，强制终止进程")
+                    self._kill_playwright_process(playwright, f"【{self.cookie_id}】")
                 except Exception as e:
                     logger.warning(f"【{self.cookie_id}】关闭Playwright时出错: {e}")
-                
+                    self._kill_playwright_process(playwright, f"【{self.cookie_id}】")
+
         except Exception as e:
             logger.error(f"【{self.cookie_id}】正常关闭时出现异常: {e}")
             raise
 
-    
     async def _force_close_resources(self, browser, playwright):
         """强制关闭资源：强制关闭浏览器+Playwright超时等待"""
         try:
@@ -6943,18 +6938,14 @@ class XianyuLive:
                 # 使用gather执行，所有失败都会被忽略
                 results = await asyncio.gather(*force_tasks, return_exceptions=True)
                 
-                # 检查是否有超时或异常，尝试强制清理
+                # 检查是否有超时或异常，强制终止进程
                 for i, result in enumerate(results):
                     if isinstance(result, (asyncio.TimeoutError, Exception)):
                         resource_name = "浏览器" if i == 0 and browser else "Playwright"
-                        logger.warning(f"【{self.cookie_id}】{resource_name}强制关闭失败，尝试直接清理连接")
-                        try:
-                            if i == 0 and browser and hasattr(browser, '_connection'):
-                                browser._connection.dispose()
-                            elif playwright and hasattr(playwright, '_connection'):
-                                playwright._connection.dispose()
-                        except Exception:
-                            pass
+                        logger.warning(f"【{self.cookie_id}】{resource_name}强制关闭失败")
+                        # 如果是 Playwright 超时/失败，强制 kill 进程
+                        if not (i == 0 and browser) and playwright:
+                            self._kill_playwright_process(playwright, f"【{self.cookie_id}】")
                 
                 logger.info(f"【{self.cookie_id}】强制关闭完成")
             else:
@@ -6962,6 +6953,22 @@ class XianyuLive:
             
         except Exception as e:
             logger.warning(f"【{self.cookie_id}】强制关闭时出现异常（已忽略）: {e}")
+
+    @staticmethod
+    def _kill_playwright_process(playwright, label=""):
+        """强制 kill Playwright 底层 node 子进程，防止进程泄漏"""
+        try:
+            proc = getattr(
+                getattr(getattr(playwright, '_connection', None), '_transport', None),
+                '_proc', None
+            )
+            if proc and proc.returncode is None:
+                proc.kill()
+                logger.warning(f"已强制终止 Playwright 进程 (pid={proc.pid}) {label}")
+            else:
+                logger.debug(f"Playwright 进程已终止或不可访问 {label}")
+        except Exception as e:
+            logger.warning(f"强制终止 Playwright 进程失败 {label}: {e}")
 
     async def send_msg_once(self, toid, item_id, text):
         headers = {

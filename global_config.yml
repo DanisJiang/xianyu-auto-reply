@@ -63,6 +63,10 @@ TOKEN_RETRY_INTERVAL: 600    # 从300秒(5分钟)增加到7200秒(2小时)
 SLIDER_VERIFICATION:
   max_concurrent: 3  # 滑块验证最大并发数
   wait_timeout: 60   # 等待排队超时时间（秒）
+  captcha_service:
+    provider: ""      # 第三方打码平台: "2captcha" | "capsolver" | ""(禁用)
+    api_key: ""       # API密钥
+    timeout: 120      # 等待解题超时（秒）
 WEBSOCKET_HEADERS:
   Accept-Encoding: gzip, deflate, br, zstd
   Accept-Language: zh-CN,zh;q=0.9
