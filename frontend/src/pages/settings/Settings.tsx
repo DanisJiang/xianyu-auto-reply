@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef } from 'react'
-import { Settings as SettingsIcon, Save, Bot, Mail, RefreshCw, Key, Download, Upload, Archive, Eye, EyeOff, Copy } from 'lucide-react'
+import { Settings as SettingsIcon, Save, Bot, Mail, RefreshCw, Key, Download, Upload, Archive, Eye, EyeOff, Copy, Shield } from 'lucide-react'
 import { getSystemSettings, updateSystemSettings, testAIConnection, testEmailSend, changePassword, downloadDatabaseBackup, uploadDatabaseBackup, reloadSystemCache, exportUserBackup, importUserBackup } from '@/api/settings'
 import { getAccounts } from '@/api/accounts'
 import { useUIStore } from '@/store/uiStore'
@@ -36,6 +36,8 @@ export function Settings() {
   const [showSmtpPassword, setShowSmtpPassword] = useState(false)
   // API Key 显示状态
   const [showApiKey, setShowApiKey] = useState(false)
+  // 打码平台 API Key 显示状态
+  const [showCaptchaKey, setShowCaptchaKey] = useState(false)
   // 密码修改显示状态
   const [showCurrentPassword, setShowCurrentPassword] = useState(false)
   const [showNewPassword, setShowNewPassword] = useState(false)
@@ -431,6 +433,69 @@ export function Settings() {
                   <li>阿里云通义千问: https://dashscope.aliyuncs.com/compatible-mode/v1</li>
                   <li>OpenAI: https://api.openai.com/v1</li>
                   <li>国内中转: 使用服务商提供的 API 地址</li>
+                </ul>
+              </div>
+            </div>
+          </div>
+
+          {/* Captcha Service Settings */}
+          <div className="vben-card">
+            <div className="vben-card-header">
+              <h2 className="vben-card-title">
+                <Shield className="w-4 h-4" />
+                滑块打码平台
+              </h2>
+            </div>
+            <div className="vben-card-body space-y-4">
+              <p className="text-sm text-slate-500 dark:text-slate-400">配置第三方打码平台，滑块验证本地失败后自动调用（可选）</p>
+              <div className="input-group">
+                <label className="input-label">打码平台</label>
+                <select
+                  value={settings?.captcha_provider || ''}
+                  onChange={(e) => setSettings(s => s ? { ...s, captcha_provider: e.target.value } : null)}
+                  className="input-ios"
+                >
+                  <option value="">禁用</option>
+                  <option value="2captcha">2captcha</option>
+                  <option value="capsolver">capsolver</option>
+                </select>
+                <p className="text-xs text-slate-400 mt-1">不配置则不使用第三方打码，不影响现有功能</p>
+              </div>
+              <div className="input-group">
+                <label className="input-label">API Key</label>
+                <div className="relative">
+                  <input
+                    type={showCaptchaKey ? 'text' : 'password'}
+                    value={settings?.captcha_api_key || ''}
+                    onChange={(e) => setSettings(s => s ? { ...s, captcha_api_key: e.target.value } : null)}
+                    placeholder="输入打码平台 API Key"
+                    className="input-ios w-full pr-10"
+                  />
+                  <button
+                    type="button"
+                    onClick={() => setShowCaptchaKey(!showCaptchaKey)}
+                    className="absolute right-2 top-1/2 -translate-y-1/2 p-1.5 text-slate-400 hover:text-slate-600 dark:hover:text-slate-300"
+                  >
+                    {showCaptchaKey ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                  </button>
+                </div>
+              </div>
+              <div className="input-group">
+                <label className="input-label">超时时间（秒）</label>
+                <input
+                  type="number"
+                  value={settings?.captcha_timeout || 120}
+                  onChange={(e) => setSettings(s => s ? { ...s, captcha_timeout: parseInt(e.target.value) || 120 } : null)}
+                  className="input-ios"
+                />
+                <p className="text-xs text-slate-400 mt-1">等待打码平台返回结果的最大时间</p>
+              </div>
+              <div className="bg-slate-50 dark:bg-slate-800/50 rounded-lg p-3 text-xs text-slate-500 dark:text-slate-400">
+                <p className="font-medium mb-1">说明:</p>
+                <ul className="space-y-0.5 list-disc list-inside">
+                  <li>2captcha: 注册地址 https://2captcha.com，约 $2.99/1000次</li>
+                  <li>capsolver: 注册地址 https://capsolver.com</li>
+                  <li>滑块验证本地 3 次失败后才会调用打码平台</li>
                 </ul>
               </div>
             </div>

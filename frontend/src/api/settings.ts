@@ -4,12 +4,15 @@ import type { ApiResponse, SystemSettings } from '@/types'
 // 获取系统设置
 export const getSystemSettings = async (): Promise<{ success: boolean; data?: SystemSettings }> => {
   const data = await get<Record<string, unknown>>('/system-settings')
-  // 将字符串 'true'/'false' 转换为布尔值
+  // 将字符串 'true'/'false' 转换为布尔值，数字字符串转为数字
   const booleanFields = ['registration_enabled', 'show_default_login_info', 'login_captcha_enabled', 'smtp_use_tls', 'smtp_use_ssl']
+  const numberFields = ['smtp_port', 'captcha_timeout']
   const converted: SystemSettings = {}
   for (const [key, value] of Object.entries(data)) {
     if (booleanFields.includes(key)) {
       converted[key] = value === true || value === 'true'
+    } else if (numberFields.includes(key) && value !== undefined && value !== null && value !== '') {
+      converted[key] = Number(value)
     } else {
       converted[key] = value
     }

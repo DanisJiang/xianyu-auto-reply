@@ -48,10 +48,23 @@ class CaptchaSolver:
 
     @staticmethod
     def _get_config_value(config_key: str, env_key: str, default: str) -> str:
-        """优先读环境变量，其次读 global_config.yml 中的配置"""
+        """优先读数据库 system_settings，其次环境变量，最后 global_config.yml"""
+        # 1. 数据库 system_settings（Web UI 配置）
+        db_key = f"captcha_{config_key}"  # e.g. captcha_provider, captcha_api_key, captcha_timeout
+        try:
+            from db_manager import db_manager
+            val = db_manager.get_system_setting(db_key)
+            if val:
+                return val
+        except Exception:
+            pass
+
+        # 2. 环境变量
         env_val = os.environ.get(env_key)
         if env_val:
             return env_val
+
+        # 3. global_config.yml
         try:
             from config import SLIDER_VERIFICATION
             captcha_cfg = SLIDER_VERIFICATION.get("captcha_service", {})
