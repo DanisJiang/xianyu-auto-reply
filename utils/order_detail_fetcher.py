@@ -638,9 +638,19 @@ class OrderDetailFetcher:
 
             if self.playwright:
                 try:
-                    await self.playwright.stop()
+                    await asyncio.wait_for(self.playwright.stop(), timeout=5.0)
                 except:
-                    pass
+                    # stop 失败，强制 kill 底层进程防止 zombie
+                    try:
+                        proc = getattr(
+                            getattr(getattr(self.playwright, '_connection', None), '_transport', None),
+                            '_proc', None
+                        )
+                        if proc and proc.returncode is None:
+                            proc.kill()
+                            await proc.wait()
+                    except:
+                        pass
                 self.playwright = None
 
         except Exception as e:

@@ -764,7 +764,20 @@ class XianyuSearcher:
             self.browser = None
             # 关闭 playwright
             if self.playwright:
-                await self.playwright.stop()
+                try:
+                    await asyncio.wait_for(self.playwright.stop(), timeout=5.0)
+                except:
+                    # stop 失败，强制 kill 底层进程防止 zombie
+                    try:
+                        proc = getattr(
+                            getattr(getattr(self.playwright, '_connection', None), '_transport', None),
+                            '_proc', None
+                        )
+                        if proc and proc.returncode is None:
+                            proc.kill()
+                            await proc.wait()
+                    except:
+                        pass
                 self.playwright = None
             logger.debug("商品搜索器浏览器和Playwright已关闭（缓存已保存）")
         except Exception as e:

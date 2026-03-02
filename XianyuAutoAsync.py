@@ -2789,10 +2789,10 @@ class XianyuLive:
                     logger.warning(f"Playwright已停止: {item_id}")
             except asyncio.TimeoutError:
                 logger.warning(f"Playwright关闭超时: {item_id}，强制终止进程")
-                self._kill_playwright_process(playwright, f"item={item_id}")
+                await self._kill_playwright_process(playwright, f"item={item_id}")
             except Exception as e:
                 logger.warning(f"停止playwright时出错: {self._safe_str(e)}")
-                self._kill_playwright_process(playwright, f"item={item_id}")
+                await self._kill_playwright_process(playwright, f"item={item_id}")
 
 
     async def save_items_list_to_db(self, items_list):
@@ -6189,10 +6189,10 @@ class XianyuLive:
                         logger.warning(f"【{target_cookie_id}】Playwright关闭完成")
                     except asyncio.TimeoutError:
                         logger.warning(f"【{target_cookie_id}】Playwright关闭超时（2秒），强制终止进程")
-                        self._kill_playwright_process(playwright, f"【{target_cookie_id}】")
+                        await self._kill_playwright_process(playwright, f"【{target_cookie_id}】")
                     except Exception as e:
                         logger.warning(f"【{target_cookie_id}】关闭Playwright时出错: {self._safe_str(e)}")
-                        self._kill_playwright_process(playwright, f"【{target_cookie_id}】")
+                        await self._kill_playwright_process(playwright, f"【{target_cookie_id}】")
             except Exception as cleanup_e:
                 logger.warning(f"【{target_cookie_id}】清理浏览器资源时出错: {self._safe_str(cleanup_e)}")
 
@@ -6484,10 +6484,10 @@ class XianyuLive:
                         logger.warning(f"【{self.cookie_id}】Playwright关闭完成")
                     except asyncio.TimeoutError:
                         logger.warning(f"【{self.cookie_id}】Playwright关闭超时（2秒），强制终止进程")
-                        self._kill_playwright_process(playwright, f"【{self.cookie_id}】")
+                        await self._kill_playwright_process(playwright, f"【{self.cookie_id}】")
                     except Exception as e:
                         logger.warning(f"【{self.cookie_id}】关闭Playwright时出错: {self._safe_str(e)}")
-                        self._kill_playwright_process(playwright, f"【{self.cookie_id}】")
+                        await self._kill_playwright_process(playwright, f"【{self.cookie_id}】")
             except Exception as cleanup_e:
                 logger.warning(f"【{self.cookie_id}】清理浏览器资源时出错: {self._safe_str(cleanup_e)}")
 
@@ -6913,10 +6913,10 @@ class XianyuLive:
                     logger.info(f"【{self.cookie_id}】Playwright关闭完成")
                 except asyncio.TimeoutError:
                     logger.warning(f"【{self.cookie_id}】Playwright关闭超时，强制终止进程")
-                    self._kill_playwright_process(playwright, f"【{self.cookie_id}】")
+                    await self._kill_playwright_process(playwright, f"【{self.cookie_id}】")
                 except Exception as e:
                     logger.warning(f"【{self.cookie_id}】关闭Playwright时出错: {e}")
-                    self._kill_playwright_process(playwright, f"【{self.cookie_id}】")
+                    await self._kill_playwright_process(playwright, f"【{self.cookie_id}】")
 
         except Exception as e:
             logger.error(f"【{self.cookie_id}】正常关闭时出现异常: {e}")
@@ -6945,7 +6945,7 @@ class XianyuLive:
                         logger.warning(f"【{self.cookie_id}】{resource_name}强制关闭失败")
                         # 如果是 Playwright 超时/失败，强制 kill 进程
                         if not (i == 0 and browser) and playwright:
-                            self._kill_playwright_process(playwright, f"【{self.cookie_id}】")
+                            await self._kill_playwright_process(playwright, f"【{self.cookie_id}】")
                 
                 logger.info(f"【{self.cookie_id}】强制关闭完成")
             else:
@@ -6955,7 +6955,7 @@ class XianyuLive:
             logger.warning(f"【{self.cookie_id}】强制关闭时出现异常（已忽略）: {e}")
 
     @staticmethod
-    def _kill_playwright_process(playwright, label=""):
+    async def _kill_playwright_process(playwright, label=""):
         """强制 kill Playwright 底层 node 子进程，防止进程泄漏"""
         try:
             proc = getattr(
@@ -6964,6 +6964,10 @@ class XianyuLive:
             )
             if proc and proc.returncode is None:
                 proc.kill()
+                try:
+                    await proc.wait()
+                except Exception:
+                    pass
                 logger.warning(f"已强制终止 Playwright 进程 (pid={proc.pid}) {label}")
             else:
                 logger.debug(f"Playwright 进程已终止或不可访问 {label}")
