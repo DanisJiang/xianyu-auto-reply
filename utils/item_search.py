@@ -766,7 +766,7 @@ class XianyuSearcher:
             if self.playwright:
                 try:
                     await asyncio.wait_for(self.playwright.stop(), timeout=5.0)
-                except:
+                except Exception:
                     # stop 失败，强制 kill 底层进程防止 zombie
                     try:
                         proc = getattr(
@@ -775,8 +775,8 @@ class XianyuSearcher:
                         )
                         if proc and proc.returncode is None:
                             proc.kill()
-                            await proc.wait()
-                    except:
+                            await asyncio.wait_for(proc.wait(), timeout=5.0)
+                    except Exception:
                         pass
                 self.playwright = None
             logger.debug("商品搜索器浏览器和Playwright已关闭（缓存已保存）")

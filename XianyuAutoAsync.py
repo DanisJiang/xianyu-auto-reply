@@ -6965,7 +6965,7 @@ class XianyuLive:
             if proc and proc.returncode is None:
                 proc.kill()
                 try:
-                    await proc.wait()
+                    await asyncio.wait_for(proc.wait(), timeout=5.0)
                 except Exception:
                     pass
                 logger.warning(f"已强制终止 Playwright 进程 (pid={proc.pid}) {label}")

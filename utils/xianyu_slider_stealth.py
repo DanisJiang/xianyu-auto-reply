@@ -476,7 +476,9 @@ class XianyuSliderStealth:
                 self.playwright.stop()
                 self.playwright = None
         except Exception as e:
-            logger.warning(f"【{self.pure_user_id}】清理Playwright时出错: {e}")
+            logger.warning(f"【{self.pure_user_id}】清理Playwright时出错: {e}，强制终止进程")
+            self._kill_sync_playwright_process()
+            self.playwright = None
     
     def _load_success_history(self) -> List[Dict[str, Any]]:
         """加载历史成功数据"""
