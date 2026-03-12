@@ -178,9 +178,10 @@ class XianyuLive:
     _instances = {}  # {cookie_id: XianyuLive实例}
     _instances_lock = asyncio.Lock()
     
-    # 类级别的密码登录时间记录，用于防止重复登录
-    _last_password_login_time = {}  # {cookie_id: timestamp}
-    _password_login_cooldown = 60  # 密码登录冷却时间：60秒
+    # 类级别的密码登录退避机制，防止人脸验证失败后无限重启循环
+    _password_login_fail_count = {}       # {cookie_id: int} 连续失败次数
+    _password_login_next_allowed = {}     # {cookie_id: float} 下次允许尝试的时间戳
+    _PASSWORD_LOGIN_BACKOFF = [120, 300, 600, 1800, 3600]  # 退避序列：2分、5分、10分、30分、1小时
     
     def _safe_str(self, e):
         """安全地将异常转换为字符串"""
@@ -2113,15 +2114,14 @@ class XianyuLive:
         """
         logger.warning(f"【{self.cookie_id}】检测到{trigger_reason}，准备刷新Cookie并重启实例...")
 
-        # 检查是否在密码登录冷却期内，避免重复登录
+        # 检查是否在退避期内，避免人脸验证失败后无限重启循环
         current_time = time.time()
-        last_password_login = XianyuLive._last_password_login_time.get(self.cookie_id, 0)
-        time_since_last_login = current_time - last_password_login
-        
-        if last_password_login > 0 and time_since_last_login < XianyuLive._password_login_cooldown:
-            remaining_time = XianyuLive._password_login_cooldown - time_since_last_login
-            logger.warning(f"【{self.cookie_id}】距离上次密码登录仅 {time_since_last_login:.1f} 秒，仍在冷却期内（还需等待 {remaining_time:.1f} 秒），跳过密码登录")
-            logger.warning(f"【{self.cookie_id}】提示：如果新Cookie仍然无效，请检查账号状态或手动更新Cookie")
+        next_allowed = XianyuLive._password_login_next_allowed.get(self.cookie_id, 0)
+
+        if current_time < next_allowed:
+            remaining_time = next_allowed - current_time
+            fail_count = XianyuLive._password_login_fail_count.get(self.cookie_id, 0)
+            logger.warning(f"【{self.cookie_id}】密码登录退避中（已连续失败{fail_count}次），{remaining_time:.0f}秒后才允许重试，跳过本次密码登录")
             return False
 
         # 记录到日志文件
@@ -2145,6 +2145,9 @@ class XianyuLive:
                 self.cookies_str = db_cookie_value
                 self.cookies = trans_cookies(self.cookies_str)
                 logger.info(f"【{self.cookie_id}】Cookie已从数据库重新加载，跳过密码登录刷新")
+                # 用户手动更新了Cookie，重置退避
+                XianyuLive._password_login_fail_count.pop(self.cookie_id, None)
+                XianyuLive._password_login_next_allowed.pop(self.cookie_id, None)
                 return True
             
             username = account_info.get('username', '')
@@ -2217,9 +2220,10 @@ class XianyuLive:
                 new_cookies_str = '; '.join([f"{k}={v}" for k, v in result.items()])
                 logger.info(f"【{self.cookie_id}】Cookie字符串格式: {new_cookies_str[:200]}..." if len(new_cookies_str) > 200 else f"【{self.cookie_id}】Cookie字符串格式: {new_cookies_str}")
                 
-                # 记录密码登录时间，防止重复登录
-                XianyuLive._last_password_login_time[self.cookie_id] = time.time()
-                logger.warning(f"【{self.cookie_id}】已记录密码登录时间，冷却期 {XianyuLive._password_login_cooldown} 秒")
+                # 密码登录成功，重置退避
+                XianyuLive._password_login_fail_count.pop(self.cookie_id, None)
+                XianyuLive._password_login_next_allowed.pop(self.cookie_id, None)
+                logger.info(f"【{self.cookie_id}】密码登录成功，已重置退避计数")
                 
                 # 更新cookies并重启任务
                 update_success = await self._update_cookies_and_restart(new_cookies_str)
@@ -2238,12 +2242,24 @@ class XianyuLive:
                     
             else:
                 logger.warning(f"【{self.cookie_id}】密码登录失败，未获取到Cookie")
+                # 递增退避
+                fail_count = XianyuLive._password_login_fail_count.get(self.cookie_id, 0) + 1
+                XianyuLive._password_login_fail_count[self.cookie_id] = fail_count
+                backoff = XianyuLive._PASSWORD_LOGIN_BACKOFF[min(fail_count - 1, len(XianyuLive._PASSWORD_LOGIN_BACKOFF) - 1)]
+                XianyuLive._password_login_next_allowed[self.cookie_id] = time.time() + backoff
+                logger.warning(f"【{self.cookie_id}】密码登录已连续失败{fail_count}次，下次允许重试需等待{backoff}秒")
                 return False
 
         except Exception as refresh_e:
             logger.error(f"【{self.cookie_id}】Cookie刷新或实例重启失败: {self._safe_str(refresh_e)}")
             import traceback
             logger.error(f"【{self.cookie_id}】详细堆栈:\n{traceback.format_exc()}")
+            # 异常也递增退避
+            fail_count = XianyuLive._password_login_fail_count.get(self.cookie_id, 0) + 1
+            XianyuLive._password_login_fail_count[self.cookie_id] = fail_count
+            backoff = XianyuLive._PASSWORD_LOGIN_BACKOFF[min(fail_count - 1, len(XianyuLive._PASSWORD_LOGIN_BACKOFF) - 1)]
+            XianyuLive._password_login_next_allowed[self.cookie_id] = time.time() + backoff
+            logger.warning(f"【{self.cookie_id}】密码登录异常，已连续失败{fail_count}次，下次允许重试需等待{backoff}秒")
             return False
 
     async def _verify_cookie_validity(self) -> dict:
@@ -8298,35 +8314,18 @@ class XianyuLive:
                                 await asyncio.sleep(2)
                                 continue
                             else:
-                                logger.warning(f"【{self.cookie_id}】❌ 密码登录刷新失败，将重启实例...")
+                                logger.warning(f"【{self.cookie_id}】❌ 密码登录刷新失败")
                         except Exception as refresh_e:
                             logger.error(f"【{self.cookie_id}】密码登录刷新过程异常: {self._safe_str(refresh_e)}")
-                            logger.warning(f"【{self.cookie_id}】将重启实例...")
-                        
-                        # 如果密码登录刷新失败或异常，则重启实例
-                        logger.error(f"【{self.cookie_id}】准备重启实例...")
-                        self.connection_failures = 0  # 重置失败计数
-                        
-                        # 先清理后台任务，避免与重启过程冲突
-                        logger.info(f"【{self.cookie_id}】重启前先清理后台任务...")
-                        try:
-                            await asyncio.wait_for(
-                                self._cancel_background_tasks(),
-                                timeout=8.0  # 给足够时间让任务响应
-                            )
-                            logger.info(f"【{self.cookie_id}】后台任务已清理完成")
-                        except asyncio.TimeoutError:
-                            logger.warning(f"【{self.cookie_id}】后台任务清理超时，强制继续重启")
-                        except Exception as cleanup_e:
-                            logger.error(f"【{self.cookie_id}】后台任务清理失败: {self._safe_str(cleanup_e)}")
-                        
-                        # 触发重启（不等待完成）
-                        await self._restart_instance()
-                        
-                        # ⚠️ 重要：_restart_instance() 已触发重启，0.5秒后当前任务会被取消
-                        # 不要在这里等待或执行其他操作，让任务自然退出
-                        logger.info(f"【{self.cookie_id}】重启请求已触发，主程序即将退出，新实例将自动启动")
-                        return  # 退出当前连接循环，等待被取消
+
+                        # 密码登录失败/异常后：不再重启实例，改为退避等待后用现有Cookie重连
+                        self.connection_failures = 0  # 重置失败计数，让重连循环重新开始
+                        next_allowed = XianyuLive._password_login_next_allowed.get(self.cookie_id, 0)
+                        wait_time = max(next_allowed - time.time(), 30)  # 至少等30秒
+                        logger.warning(f"【{self.cookie_id}】密码登录未成功，将等待{wait_time:.0f}秒后用现有Cookie尝试重连（不重启实例）")
+                        self._set_connection_state(ConnectionState.RECONNECTING, f"密码登录失败，等待{wait_time:.0f}秒后重连")
+                        await asyncio.sleep(wait_time)
+                        continue  # 回到while True循环顶部，用现有Cookie重连
 
                     # 计算重试延迟
                     retry_delay = self._calculate_retry_delay(error_msg)
